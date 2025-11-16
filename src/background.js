@@ -39,7 +39,7 @@ const generateSpeech = async (text, voice = 'af_heart', speed = 1) => {
     console.log('[VoxLocal] TTS model ready, generating audio...');
 
     // Generate audio from the input text
-    console.log('[VoxLocal] Processing text and generating audio...');
+    console.log(`[VoxLocal] Processing text and generating audio... "${text.substring(0, 100)}${text.length > 100 ? '...' : ''}"`);
     let audio = await tts.generate(text, { voice, speed });
     console.log(`[VoxLocal] Audio generated successfully (${audio.sample_rate}Hz sample rate)`);
 

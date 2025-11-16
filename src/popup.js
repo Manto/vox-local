@@ -7,6 +7,8 @@ const speedSlider = document.getElementById('speed-slider');
 const speedValue = document.getElementById('speed-value');
 const speakBtn = document.getElementById('speak-btn');
 const stopBtn = document.getElementById('stop-btn');
+const speakSelectionBtn = document.getElementById('speak-selection');
+const speakPageBtn = document.getElementById('speak-page');
 const statusElement = document.getElementById('status');
 const progressElement = document.getElementById('progress');
 const progressFill = document.getElementById('progress-fill');
@@ -17,6 +19,103 @@ let currentAudio = null;
 // Update speed value display
 speedSlider.addEventListener('input', (event) => {
     speedValue.textContent = `${event.target.value}x`;
+});
+
+// Function to send text to TTS for speech generation
+function sendToTTS(text, voice, speed, loadingMessage = 'Generating speech...') {
+    // Disable buttons and show loading
+    speakBtn.disabled = true;
+    stopBtn.disabled = false;
+    speakSelectionBtn.disabled = true;
+    speakPageBtn.disabled = true;
+
+    updateStatus(loadingMessage, 'loading');
+
+    // Send message to background script
+    const message = {
+        action: 'speak',
+        text: text,
+        voice: voice,
+        speed: speed
+    };
+
+    console.log(`[VoxLocal] Sending speak message to background script - text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}", voice: ${voice}, speed: ${speed}x`);
+
+    chrome.runtime.sendMessage(message, (response) => {
+        if (chrome.runtime.lastError) {
+            console.error('[VoxLocal] Runtime error:', chrome.runtime.lastError);
+            updateStatus('Error: ' + chrome.runtime.lastError.message, 'error');
+            resetButtons();
+            return;
+        }
+
+        if (response && response.audio) {
+            console.log(`[VoxLocal] Received audio response (${(response.audio.length / 1024).toFixed(2)} KB, ${response.sampleRate}Hz, voice: ${response.voice})`);
+            playAudio(response);
+        } else {
+            console.error('[VoxLocal] No audio received in response');
+            updateStatus('Error: No audio received', 'error');
+            resetButtons();
+        }
+    });
+}
+
+// Function to speak text from page (selection or full page)
+async function speakFromPage(type) {
+    const voice = voiceSelect.value;
+    const speed = parseFloat(speedSlider.value);
+
+    updateStatus(type === 'selection' ? 'Getting selected text...' : 'Getting page text...', 'loading');
+
+    try {
+        // Get the active tab
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!tab?.id) {
+            throw new Error('No active tab found');
+        }
+
+        // Send message to content script to get text
+        const messageType = type === 'selection' ? 'GET_SELECTION' : 'GET_PAGE_TEXT';
+        chrome.tabs.sendMessage(tab.id, { type: messageType }, (response) => {
+            if (chrome.runtime.lastError) {
+                console.error('[VoxLocal] Runtime error:', chrome.runtime.lastError);
+                updateStatus('Error: ' + chrome.runtime.lastError.message, 'error');
+                resetButtons();
+                return;
+            }
+
+            if (!response || !response.text || response.text.trim() === '') {
+                const errorMsg = type === 'selection' ? 'No text selected' : 'No text found on page';
+                updateStatus(errorMsg, 'error');
+                setTimeout(() => updateStatus('Ready to speak...', 'info'), 2000);
+                resetButtons();
+                return;
+            }
+
+            // Use the text and speak it using existing logic
+            const text = response.text.trim();
+            console.log(`[VoxLocal] Got ${type} text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
+
+            // Send to TTS with page-specific loading message
+            sendToTTS(text, voice, speed, 'Converting page text to speech...');
+        });
+    } catch (error) {
+        console.error('[VoxLocal] Error:', error);
+        updateStatus('Error: ' + error.message, 'error');
+        resetButtons();
+    }
+}
+
+// Speak Selection button click handler
+speakSelectionBtn.addEventListener('click', async () => {
+    console.log('[VoxLocal] Speak Selection button clicked');
+    await speakFromPage('selection');
+});
+
+// Speak Page button click handler
+speakPageBtn.addEventListener('click', async () => {
+    console.log('[VoxLocal] Speak Page button clicked');
+    await speakFromPage('page');
 });
 
 // Speak button click handler
@@ -33,43 +132,8 @@ speakBtn.addEventListener('click', async () => {
 
     console.log(`[VoxLocal] Speak button clicked - text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}", voice: ${voice}, speed: ${speed}x`);
 
-    // Disable buttons and show loading
-    speakBtn.disabled = true;
-    stopBtn.disabled = false;
-    updateStatus('Generating speech...', 'loading');
-
-    try {
-        // Send message to background script
-        const message = {
-            action: 'speak',
-            text: text,
-            voice: voice,
-            speed: speed
-        };
-
-        console.log('[VoxLocal] Sending speak message to background script...');
-        chrome.runtime.sendMessage(message, (response) => {
-            if (chrome.runtime.lastError) {
-                console.error('[VoxLocal] Runtime error:', chrome.runtime.lastError);
-                updateStatus('Error: ' + chrome.runtime.lastError.message, 'error');
-                resetButtons();
-                return;
-            }
-
-            if (response && response.audio) {
-                console.log(`[VoxLocal] Received audio response (${(response.audio.length / 1024).toFixed(2)} KB, ${response.sampleRate}Hz, voice: ${response.voice})`);
-                playAudio(response);
-            } else {
-                console.error('[VoxLocal] No audio received in response');
-                updateStatus('Error: No audio received', 'error');
-                resetButtons();
-            }
-        });
-    } catch (error) {
-        console.error('[VoxLocal] Error sending message:', error);
-        updateStatus('Error: ' + error.message, 'error');
-        resetButtons();
-    }
+    // Send to TTS
+    sendToTTS(text, voice, speed);
 });
 
 // Stop button click handler
@@ -146,6 +210,8 @@ function playAudio(response) {
 function resetButtons() {
     speakBtn.disabled = false;
     stopBtn.disabled = true;
+    speakSelectionBtn.disabled = false;
+    speakPageBtn.disabled = false;
 }
 
 // Update status display

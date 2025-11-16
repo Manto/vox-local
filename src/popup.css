@@ -46,6 +46,46 @@ h2 {
     margin-bottom: 20px;
 }
 
+.page-controls-section {
+    margin-bottom: 20px;
+}
+
+.page-control-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.page-btn {
+    flex: 1;
+    padding: 10px 12px;
+    border: 2px solid #e1e5e9;
+    border-radius: 8px;
+    background: white;
+    color: #333;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.page-btn:hover:not(:disabled) {
+    background: #f8f9fa;
+    border-color: #667eea;
+    transform: translateY(-1px);
+}
+
+.page-btn:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+.icon {
+    font-size: 14px;
+}
+
 #text {
     width: 100%;
     padding: 12px;
