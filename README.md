@@ -2,8 +2,6 @@
 
 High-quality text-to-speech for the web built upon [Kokoro.js](https://github.com/hexgrad/kokoro) - a 82M parameter TTS model running entirely in your browser!
 
-![VoxLocal](https://img.shields.io/badge/VoxLocal-TTS-blue) ![WebAssembly](https://img.shields.io/badge/WebAssembly-Enabled-green) ![Chrome](https://img.shields.io/badge/Chrome-Extension-orange)
-
 ## ✨ Features
 
 - **High-Quality Speech**: Uses Kokoro-82M model for natural-sounding text-to-speech
@@ -20,8 +18,8 @@ High-quality text-to-speech for the web built upon [Kokoro.js](https://github.co
 
 1. **Clone and install:**
    ```bash
-   git clone https://github.com/yourusername/voxlocal-extension.git
-   cd voxlocal-extension
+   git clone https://github.com/Manto/vox-local.git
+   cd vox-local
    npm install
    ```
 
@@ -101,23 +99,14 @@ build/               # Compiled extension (generated)
 ## 🎙️ Available Voices
 
 ### American English
-- **af_heart** (Female, Recommended) - ❤️
-- **af_bella** (Female, High Quality) - 🔥
+- **af_heart** (Female)
+- **af_bella** (Female)
 - **am_michael** (Male)
 - **am_fenrir** (Male)
 
 ### British English
-- **bf_emma** (Female, High Quality) - 🔥
+- **bf_emma** (Female)
 - **bm_george** (Male)
-
-## 🔧 Technical Details
-
-- **Built upon**: [Kokoro.js](https://github.com/hexgrad/kokoro/tree/main/kokoro.js)
-- **Model**: Kokoro-82M (82 million parameters)
-- **Backend**: [🤗 Transformers.js](https://huggingface.co/docs/transformers.js)
-- **Runtime**: WebAssembly (WASM)
-- **Audio Format**: WAV (16-bit PCM)
-- **Sample Rate**: 24kHz
 
 ## 📋 Requirements
 
@@ -130,7 +119,6 @@ build/               # Compiled extension (generated)
 - **No Data Transmission**: All processing happens locally in your browser
 - **No External APIs**: No calls to cloud services or third-party APIs
 - **No Data Collection**: No telemetry or usage tracking
-- **CSP Compliant**: Follows Chrome's Content Security Policy
 
 ## 🤝 Contributing
 
@@ -145,10 +133,5 @@ This project uses the Apache 2.0 License. See [LICENSE](LICENSE) for details.
 
 ## 🙏 Acknowledgments
 
-- [Hexgrad](https://github.com/hexgrad) for the amazing Kokoro.js framework and TTS model
-- [Hugging Face](https://huggingface.co) for Transformers.js
-- [Xenova](https://github.com/xenova) for the JavaScript implementation
-
----
-
-**VoxLocal is proudly built upon Kokoro.js - Made with ❤️ using cutting-edge AI running entirely in your browser!**
+- [Hexgrad](https://github.com/hexgrad) for the Kokoro.js framework and TTS model
+- [HuggingFace](https://huggingface.co) for Transformers.js
