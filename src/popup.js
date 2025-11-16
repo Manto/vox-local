@@ -5,13 +5,15 @@ const textElement = document.getElementById('text');
 const voiceSelect = document.getElementById('voice-select');
 const speedSlider = document.getElementById('speed-slider');
 const speedValue = document.getElementById('speed-value');
+const dtypeSelect = document.getElementById('dtype');
+const deviceSelect = document.getElementById('device');
+const autoHighlightCheckbox = document.getElementById('auto-highlight');
 const speakBtn = document.getElementById('speak-btn');
 const stopBtn = document.getElementById('stop-btn');
 const speakSelectionBtn = document.getElementById('speak-selection');
 const speakPageBtn = document.getElementById('speak-page');
 const statusElement = document.getElementById('status');
-const progressElement = document.getElementById('progress');
-const progressFill = document.getElementById('progress-fill');
+const modelStatusElement = document.getElementById('model-status');
 
 // Global audio element for current playback
 let currentAudio = null;
@@ -87,7 +89,7 @@ async function speakFromPage(type) {
             if (!response || !response.text || response.text.trim() === '') {
                 const errorMsg = type === 'selection' ? 'No text selected' : 'No text found on page';
                 updateStatus(errorMsg, 'error');
-                setTimeout(() => updateStatus('Ready to speak...', 'info'), 2000);
+                setTimeout(() => updateStatus('Ready', 'ready'), 2000);
                 resetButtons();
                 return;
             }
@@ -145,7 +147,7 @@ stopBtn.addEventListener('click', () => {
         currentAudio = null;
     }
     resetButtons();
-    updateStatus('Playback stopped', 'info');
+    updateStatus('Stopped', 'ready');
 });
 
 // Play audio from base64 data
@@ -169,7 +171,7 @@ function playAudio(response) {
 
         currentAudio.onloadedmetadata = () => {
             console.log(`[VoxLocal] Audio loaded - duration: ${currentAudio.duration.toFixed(2)}s`);
-            updateStatus('Playing audio...', 'success');
+            updateStatus('Speaking', 'speaking');
             speakBtn.disabled = true;
             stopBtn.disabled = false;
         };
@@ -179,7 +181,7 @@ function playAudio(response) {
             URL.revokeObjectURL(audioUrl);
             currentAudio = null;
             resetButtons();
-            updateStatus('Playback finished', 'success');
+            updateStatus('Ready', 'ready');
         };
 
         currentAudio.onerror = (error) => {
@@ -187,7 +189,7 @@ function playAudio(response) {
             URL.revokeObjectURL(audioUrl);
             currentAudio = null;
             resetButtons();
-            updateStatus('Error playing audio', 'error');
+            updateStatus('Error', 'error');
         };
 
         console.log('[VoxLocal] Starting audio playback...');
@@ -215,16 +217,26 @@ function resetButtons() {
 }
 
 // Update status display
-function updateStatus(message, type = 'info') {
+function updateStatus(message, type = 'ready') {
     statusElement.textContent = message;
-    statusElement.className = `status-${type}`;
 
-    // Hide progress for now (could be used for model loading progress later)
-    progressElement.style.display = 'none';
+    // Remove all status classes
+    statusElement.className = 'status-badge';
+
+    // Add the appropriate status class
+    statusElement.classList.add(type);
+}
+
+// Update model status display
+function updateModelStatus(message) {
+    if (modelStatusElement) {
+        modelStatusElement.textContent = message;
+    }
 }
 
 // Initialize on load
 document.addEventListener('DOMContentLoaded', () => {
     console.log('[VoxLocal] Popup initialized and ready');
-    updateStatus('Ready to speak...');
+    updateStatus('Ready');
+    updateModelStatus('Model will load on first use');
 });

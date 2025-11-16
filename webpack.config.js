@@ -26,6 +26,7 @@ const config = {
         new HtmlWebpackPlugin({
             template: './src/popup.html',
             filename: 'popup.html',
+            chunks: ['popup'], // Only inject popup.js into popup.html
         }),
         new CopyPlugin({
             patterns: [

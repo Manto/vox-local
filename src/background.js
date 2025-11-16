@@ -24,15 +24,26 @@ const generateSpeech = async (text, voice = 'af_heart', speed = 1) => {
 
     // Get the TTS instance. This will load and build the model when run for the first time.
     console.log('[VoxLocal] Checking TTS model availability...');
+
+    // Track progress milestones to only log at 25%, 50%, 75%, 100%
+    let lastDownloadProgress = 0;
+
     let tts = await TTSSingleton.getInstance((data) => {
         // You can track the progress of the model loading here.
         // e.g., you can send `data` back to the UI to indicate a progress bar
-        console.log('[VoxLocal] TTS model loading progress:', data);
 
-        if (data.status === 'download') {
-            console.log(`[VoxLocal] Downloading model... ${Math.round(data.progress * 100)}% complete`);
-        } else if (data.status === 'init') {
-            console.log(`[VoxLocal] Initializing model... ${Math.round(data.progress * 100)}% complete`);
+        const currentProgress = Math.round(data.progress * 100)/100;
+        const milestones = [25, 50, 75, 100];
+
+        if (data.status === 'progress') {
+            // Only log when crossing milestone thresholds
+            for (const milestone of milestones) {
+                if (lastDownloadProgress < milestone && currentProgress >= milestone) {
+                    console.log(`[VoxLocal] Downloading model... ${milestone}% complete`);
+                    break;
+                }
+            }
+            lastDownloadProgress = currentProgress;
         }
     });
 
