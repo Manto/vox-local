@@ -1,0 +1,154 @@
+# 🎵 VoxLocal - Chrome Extension
+
+High-quality text-to-speech for the web built upon [Kokoro.js](https://github.com/hexgrad/kokoro) - a 82M parameter TTS model running entirely in your browser!
+
+![VoxLocal](https://img.shields.io/badge/VoxLocal-TTS-blue) ![WebAssembly](https://img.shields.io/badge/WebAssembly-Enabled-green) ![Chrome](https://img.shields.io/badge/Chrome-Extension-orange)
+
+## ✨ Features
+
+- **High-Quality Speech**: Uses Kokoro-82M model for natural-sounding text-to-speech
+- **Browser-Native**: Runs entirely in your browser with WebAssembly - no external APIs or cloud services
+- **Multiple Voices**: Choose from various American and British English voices
+- **Speed Control**: Adjust speaking speed from 0.5x to 2.0x
+- **Context Menu**: Right-click any selected text on web pages to hear it spoken
+- **Privacy-Focused**: All processing happens locally on your device
+- **CSP Compliant**: Follows Chrome extension security policies
+
+## 🚀 Quick Start
+
+### Installation
+
+1. **Clone and install:**
+   ```bash
+   git clone https://github.com/yourusername/voxlocal-extension.git
+   cd voxlocal-extension
+   npm install
+   ```
+
+2. **Build the extension:**
+   ```bash
+   npm run build
+   ```
+
+3. **Load in Chrome:**
+   - Open `chrome://extensions/`
+   - Enable "Developer mode" (top right toggle)
+   - Click "Load unpacked"
+   - Select the `build/` folder
+   - The extension icon should appear in your toolbar!
+
+### Usage
+
+#### From the Extension Popup:
+1. Click the extension icon in your toolbar
+2. Type or paste text in the input field
+3. Select your preferred voice and adjust speed
+4. Click "🔊 Speak" to hear the audio
+5. Use "⏹️ Stop" to halt playback
+
+#### From Any Webpage:
+1. Select any text on any website
+2. Right-click the selection
+3. Choose "Speak '[selected text]'" from the context menu
+4. Audio will play immediately!
+
+## 🛠️ Development
+
+### Project Structure
+
+```
+src/
+├── background.js    # Service worker - handles TTS model loading and audio generation
+├── popup.html       # Extension popup UI
+├── popup.css        # Popup styling
+├── popup.js         # Popup interaction logic
+└── content.js       # Content script for webpage integration
+
+public/
+├── manifest.json    # Extension manifest
+└── icons/           # Extension icons
+
+build/               # Compiled extension (generated)
+```
+
+### Development Workflow
+
+1. **Install dependencies:**
+   ```bash
+   npm install
+   ```
+
+2. **Start development server:**
+   ```bash
+   npm run dev
+   ```
+   This watches for changes and rebuilds automatically.
+
+3. **Manual build:**
+   ```bash
+   npm run build
+   ```
+
+4. **Reload extension:**
+   After making changes to `background.js` or `content.js`, reload the extension in `chrome://extensions/`
+
+### Key Files
+
+- **`background.js`**: Loads the Kokoro TTS model and handles audio generation requests
+- **`popup.js`**: Manages the extension popup UI and audio playback
+- **`manifest.json`**: Defines extension permissions and structure
+
+## 🎙️ Available Voices
+
+### American English
+- **af_heart** (Female, Recommended) - ❤️
+- **af_bella** (Female, High Quality) - 🔥
+- **am_michael** (Male)
+- **am_fenrir** (Male)
+
+### British English
+- **bf_emma** (Female, High Quality) - 🔥
+- **bm_george** (Male)
+
+## 🔧 Technical Details
+
+- **Built upon**: [Kokoro.js](https://github.com/hexgrad/kokoro/tree/main/kokoro.js)
+- **Model**: Kokoro-82M (82 million parameters)
+- **Backend**: [🤗 Transformers.js](https://huggingface.co/docs/transformers.js)
+- **Runtime**: WebAssembly (WASM)
+- **Audio Format**: WAV (16-bit PCM)
+- **Sample Rate**: 24kHz
+
+## 📋 Requirements
+
+- **Chrome**: Version 92 or later
+- **WebAssembly**: Enabled (default in modern Chrome)
+- **Storage**: ~100MB for model files (downloaded on first use)
+
+## 🔒 Privacy & Security
+
+- **No Data Transmission**: All processing happens locally in your browser
+- **No External APIs**: No calls to cloud services or third-party APIs
+- **No Data Collection**: No telemetry or usage tracking
+- **CSP Compliant**: Follows Chrome's Content Security Policy
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/your-feature`
+3. Make your changes and test thoroughly
+4. Submit a pull request
+
+## 📄 License
+
+This project uses the Apache 2.0 License. See [LICENSE](LICENSE) for details.
+
+## 🙏 Acknowledgments
+
+- [Hexgrad](https://github.com/hexgrad) for the amazing Kokoro.js framework and TTS model
+- [Hugging Face](https://huggingface.co) for Transformers.js
+- [Xenova](https://github.com/xenova) for the JavaScript implementation
+
+---
+
+**VoxLocal is proudly built upon Kokoro.js - Made with ❤️ using cutting-edge AI running entirely in your browser!**

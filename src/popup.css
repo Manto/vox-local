@@ -1,0 +1,195 @@
+/* Kokoro TTS Extension Styles */
+
+* {
+    padding: 0;
+    margin: 0;
+    box-sizing: border-box;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+}
+
+body {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-width: 400px;
+    min-height: 550px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+}
+
+.container {
+    background: white;
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    width: 100%;
+    max-width: 400px;
+}
+
+h1 {
+    font-size: 28px;
+    text-align: center;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #333;
+}
+
+h2 {
+    font-size: 14px;
+    text-align: center;
+    font-weight: 400;
+    margin-bottom: 20px;
+    color: #666;
+}
+
+.input-section {
+    margin-bottom: 20px;
+}
+
+#text {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #e1e5e9;
+    border-radius: 8px;
+    font-size: 14px;
+    line-height: 1.4;
+    resize: vertical;
+    min-height: 80px;
+    transition: border-color 0.2s ease;
+}
+
+#text:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+.controls-section {
+    margin-bottom: 20px;
+}
+
+.control-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 12px;
+    gap: 12px;
+}
+
+.control-row label {
+    font-weight: 500;
+    color: #333;
+    min-width: 50px;
+    font-size: 14px;
+}
+
+#voice-select {
+    flex: 1;
+    padding: 8px 12px;
+    border: 2px solid #e1e5e9;
+    border-radius: 6px;
+    font-size: 14px;
+    background: white;
+    transition: border-color 0.2s ease;
+}
+
+#voice-select:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+#speed-slider {
+    flex: 1;
+    margin: 0 8px;
+}
+
+#speed-value {
+    font-weight: 500;
+    color: #667eea;
+    min-width: 35px;
+    text-align: center;
+    font-size: 14px;
+}
+
+.button-section {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+button {
+    flex: 1;
+    padding: 12px 16px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+#speak-btn {
+    background: #667eea;
+    color: white;
+}
+
+#speak-btn:hover:not(:disabled) {
+    background: #5a6fd8;
+    transform: translateY(-1px);
+}
+
+#stop-btn {
+    background: #e74c3c;
+    color: white;
+}
+
+#stop-btn:hover:not(:disabled) {
+    background: #c0392b;
+    transform: translateY(-1px);
+}
+
+button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.status-section {
+    margin-bottom: 20px;
+}
+
+#status {
+    font-size: 14px;
+    color: #666;
+    text-align: center;
+    min-height: 20px;
+}
+
+#progress {
+    margin-top: 12px;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 4px;
+    background: #e1e5e9;
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: #667eea;
+    width: 0%;
+    transition: width 0.3s ease;
+}
+
+.instructions {
+    border-top: 1px solid #e1e5e9;
+    padding-top: 16px;
+}
+
+.instructions p {
+    font-size: 12px;
+    color: #888;
+    text-align: center;
+    line-height: 1.4;
+}

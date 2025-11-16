@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VoxLocal | Browser Extension</title>
+
+    <!-- Load styles -->
+    <link rel="stylesheet" href="popup.css" />
+</head>
+
+<body>
+    <div class="container">
+        <h1>🎵 VoxLocal</h1>
+        <h2>High-quality text-to-speech in your browser!</h2>
+
+        <div class="input-section">
+            <textarea id="text" placeholder="Enter text to speak..." rows="4"></textarea>
+        </div>
+
+        <div class="controls-section">
+            <div class="control-row">
+                <label for="voice-select">Voice:</label>
+                <select id="voice-select">
+                    <option value="af_heart">Heart (Female, Recommended)</option>
+                    <option value="af_bella">Bella (Female, High Quality)</option>
+                    <option value="am_michael">Michael (Male)</option>
+                    <option value="am_fenrir">Fenrir (Male)</option>
+                    <option value="bf_emma">Emma (British Female)</option>
+                    <option value="bm_george">George (British Male)</option>
+                </select>
+            </div>
+
+            <div class="control-row">
+                <label for="speed-slider">Speed:</label>
+                <input type="range" id="speed-slider" min="0.5" max="2" step="0.1" value="1">
+                <span id="speed-value">1.0x</span>
+            </div>
+        </div>
+
+        <div class="button-section">
+            <button id="speak-btn">🔊 Speak</button>
+            <button id="stop-btn" disabled>⏹️ Stop</button>
+        </div>
+
+        <div class="status-section">
+            <div id="status">Ready to speak...</div>
+            <div id="progress" style="display: none;">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="instructions">
+            <p><strong>Tip:</strong> Right-click on selected text anywhere on the web to hear it spoken!</p>
+        </div>
+    </div>
+</body>
+
+</html>
