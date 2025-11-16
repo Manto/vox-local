@@ -133,5 +133,5 @@ This project uses the Apache 2.0 License. See [LICENSE](LICENSE) for details.
 
 ## 🙏 Acknowledgments
 
-- [Hexgrad](https://github.com/hexgrad) for the Kokoro.js framework and TTS model
+- [Hexgrad](https://github.com/hexgrad) for the Kokoro.js framework and the TTS model
 - [HuggingFace](https://huggingface.co) for Transformers.js
