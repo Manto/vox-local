@@ -23,12 +23,15 @@ speedSlider.addEventListener('input', (event) => {
 speakBtn.addEventListener('click', async () => {
     const text = textElement.value.trim();
     if (!text) {
+        console.log('[VoxLocal] Speak button clicked but no text entered');
         updateStatus('Please enter some text to speak', 'error');
         return;
     }
 
     const voice = voiceSelect.value;
     const speed = parseFloat(speedSlider.value);
+
+    console.log(`[VoxLocal] Speak button clicked - text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}", voice: ${voice}, speed: ${speed}x`);
 
     // Disable buttons and show loading
     speakBtn.disabled = true;
@@ -44,23 +47,26 @@ speakBtn.addEventListener('click', async () => {
             speed: speed
         };
 
+        console.log('[VoxLocal] Sending speak message to background script...');
         chrome.runtime.sendMessage(message, (response) => {
             if (chrome.runtime.lastError) {
-                console.error('Runtime error:', chrome.runtime.lastError);
+                console.error('[VoxLocal] Runtime error:', chrome.runtime.lastError);
                 updateStatus('Error: ' + chrome.runtime.lastError.message, 'error');
                 resetButtons();
                 return;
             }
 
             if (response && response.audio) {
+                console.log(`[VoxLocal] Received audio response (${(response.audio.length / 1024).toFixed(2)} KB, ${response.sampleRate}Hz, voice: ${response.voice})`);
                 playAudio(response);
             } else {
+                console.error('[VoxLocal] No audio received in response');
                 updateStatus('Error: No audio received', 'error');
                 resetButtons();
             }
         });
     } catch (error) {
-        console.error('Error sending message:', error);
+        console.error('[VoxLocal] Error sending message:', error);
         updateStatus('Error: ' + error.message, 'error');
         resetButtons();
     }
@@ -68,7 +74,9 @@ speakBtn.addEventListener('click', async () => {
 
 // Stop button click handler
 stopBtn.addEventListener('click', () => {
+    console.log('[VoxLocal] Stop button clicked');
     if (currentAudio) {
+        console.log('[VoxLocal] Stopping current audio playback');
         currentAudio.pause();
         currentAudio = null;
     }
@@ -79,6 +87,7 @@ stopBtn.addEventListener('click', () => {
 // Play audio from base64 data
 function playAudio(response) {
     try {
+        console.log('[VoxLocal] Converting base64 audio to playable format...');
         // Convert base64 back to audio
         const audioData = atob(response.audio);
         const arrayBuffer = new ArrayBuffer(audioData.length);
@@ -92,14 +101,17 @@ function playAudio(response) {
 
         currentAudio = new Audio(audioUrl);
         currentAudio.playbackRate = response.speed || 1;
+        console.log(`[VoxLocal] Audio element created with playback rate: ${currentAudio.playbackRate}x`);
 
         currentAudio.onloadedmetadata = () => {
+            console.log(`[VoxLocal] Audio loaded - duration: ${currentAudio.duration.toFixed(2)}s`);
             updateStatus('Playing audio...', 'success');
             speakBtn.disabled = true;
             stopBtn.disabled = false;
         };
 
         currentAudio.onended = () => {
+            console.log('[VoxLocal] Audio playback completed successfully');
             URL.revokeObjectURL(audioUrl);
             currentAudio = null;
             resetButtons();
@@ -107,15 +119,16 @@ function playAudio(response) {
         };
 
         currentAudio.onerror = (error) => {
-            console.error('Audio playback error:', currentAudio?.error?.message || 'Unknown error');
+            console.error('[VoxLocal] Audio playback error:', currentAudio?.error?.message || 'Unknown error');
             URL.revokeObjectURL(audioUrl);
             currentAudio = null;
             resetButtons();
             updateStatus('Error playing audio', 'error');
         };
 
+        console.log('[VoxLocal] Starting audio playback...');
         currentAudio.play().catch((error) => {
-            console.error('Audio play failed:', error.message);
+            console.error('[VoxLocal] Audio play failed:', error.message);
             URL.revokeObjectURL(audioUrl);
             currentAudio = null;
             resetButtons();
@@ -123,7 +136,7 @@ function playAudio(response) {
         });
 
     } catch (error) {
-        console.error('Error creating audio:', error);
+        console.error('[VoxLocal] Error creating audio:', error);
         updateStatus('Error: ' + error.message, 'error');
         resetButtons();
     }
@@ -146,5 +159,6 @@ function updateStatus(message, type = 'info') {
 
 // Initialize on load
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('[VoxLocal] Popup initialized and ready');
     updateStatus('Ready to speak...');
 });

@@ -20,28 +20,44 @@ class TTSSingleton {
 
 // Create generic TTS function, which will be reused for the different types of events.
 const generateSpeech = async (text, voice = 'af_heart', speed = 1) => {
+    console.log(`[VoxLocal] Starting speech generation for text (${text.length} characters) with voice: ${voice}, speed: ${speed}x`);
+
     // Get the TTS instance. This will load and build the model when run for the first time.
+    console.log('[VoxLocal] Checking TTS model availability...');
     let tts = await TTSSingleton.getInstance((data) => {
         // You can track the progress of the model loading here.
         // e.g., you can send `data` back to the UI to indicate a progress bar
-        console.log('TTS model loading progress:', data);
+        console.log('[VoxLocal] TTS model loading progress:', data);
+
+        if (data.status === 'download') {
+            console.log(`[VoxLocal] Downloading model... ${Math.round(data.progress * 100)}% complete`);
+        } else if (data.status === 'init') {
+            console.log(`[VoxLocal] Initializing model... ${Math.round(data.progress * 100)}% complete`);
+        }
     });
 
+    console.log('[VoxLocal] TTS model ready, generating audio...');
+
     // Generate audio from the input text
+    console.log('[VoxLocal] Processing text and generating audio...');
     let audio = await tts.generate(text, { voice, speed });
+    console.log(`[VoxLocal] Audio generated successfully (${audio.sample_rate}Hz sample rate)`);
 
     // Use the built-in toBlob method to properly create WAV data
+    console.log('[VoxLocal] Converting audio to blob format...');
     const blob = audio.toBlob();
     const arrayBuffer = await blob.arrayBuffer();
     const uint8Array = new Uint8Array(arrayBuffer);
 
     // Convert Uint8Array to binary string efficiently
     // Use a more robust approach that avoids call stack limits entirely
+    console.log(`[VoxLocal] Converting ${uint8Array.length} bytes to base64...`);
     let binaryString = '';
     for (let i = 0; i < uint8Array.length; i++) {
         binaryString += String.fromCharCode(uint8Array[i]);
     }
     const base64Audio = btoa(binaryString);
+    console.log(`[VoxLocal] Audio processing complete (${(base64Audio.length / 1024).toFixed(2)} KB base64 data)`);
 
     return {
         audio: base64Audio,
@@ -69,16 +85,20 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     // Ignore context menu clicks that are not for speech (or when there is no input)
     if (info.menuItemId !== 'speak-selection' || !info.selectionText) return;
 
+    console.log(`[VoxLocal] Context menu activated for selected text (${info.selectionText.length} characters)`);
+
     // Generate speech for the selected text
     let result = await generateSpeech(info.selectionText);
 
     // Inject a script to play the audio
+    console.log(`[VoxLocal] Injecting audio playback script into tab ${tab.id}`);
     chrome.scripting.executeScript({
         target: { tabId: tab.id },    // Run in the tab that the user clicked in
         args: [result],               // The arguments to pass to the function
         function: (result) => {       // The function to run
             // NOTE: This function is run in the context of the web page, meaning that `document` is available.
             try {
+                console.log('[VoxLocal] Starting audio playback from context menu...');
                 // Convert base64 back to audio and play it
                 const audioData = atob(result.audio);
                 const arrayBuffer = new ArrayBuffer(audioData.length);
@@ -93,12 +113,16 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
                 audio.play().catch(console.error);
 
                 // Clean up the URL after playing
-                audio.onended = () => URL.revokeObjectURL(audioUrl);
+                audio.onended = () => {
+                    console.log('[VoxLocal] Context menu audio playback completed');
+                    URL.revokeObjectURL(audioUrl);
+                };
             } catch (error) {
-                console.error('Error playing audio:', error);
+                console.error('[VoxLocal] Error playing context menu audio:', error);
             }
         },
     });
+    console.log('[VoxLocal] Context menu speech generation completed');
 });
 //////////////////////////////////////////////////////////////
 
@@ -106,14 +130,16 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 //
 // Listen for messages from the UI, process it, and send the result back.
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    console.log('sender', sender)
     if (message.action !== 'speak') return; // Ignore messages that are not meant for speech generation.
+
+    console.log(`[VoxLocal] Received speak request from ${sender.url || 'popup'}`);
 
     // Run TTS asynchronously
     (async function () {
         // Generate speech
         let result = await generateSpeech(message.text, message.voice, message.speed);
 
+        console.log('[VoxLocal] Sending audio response to popup');
         // Send response back to UI
         sendResponse(result);
     })();
