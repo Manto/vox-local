@@ -17,11 +17,58 @@ const modelStatusElement = document.getElementById('model-status');
 
 // Global audio element for current playback
 let currentAudio = null;
+// Streaming TTS state
+let audioQueue = [];
+let isStreaming = false;
+let streamChunksReceived = 0;
+let totalStreamChunks = 0;
 
 // Update speed value display
 speedSlider.addEventListener('input', (event) => {
     speedValue.textContent = `${event.target.value}x`;
 });
+
+// Function to send text to streaming TTS for speech generation
+function sendStreamingTTS(text, voice, speed) {
+    // Reset streaming state
+    audioQueue = [];
+    isStreaming = true;
+    streamChunksReceived = 0;
+    totalStreamChunks = 0;
+
+    // Disable buttons and show loading
+    speakBtn.disabled = true;
+    stopBtn.disabled = false;
+    speakSelectionBtn.disabled = true;
+    speakPageBtn.disabled = true;
+
+    updateStatus('Starting streaming speech...', 'loading');
+
+    // Send message to background script for streaming
+    const message = {
+        action: 'speak_stream',
+        text: text,
+        voice: voice,
+        speed: speed
+    };
+
+    console.log(`[VoxLocal] Sending streaming speak message to background script - text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}", voice: ${voice}, speed: ${speed}x`);
+
+    chrome.runtime.sendMessage(message, (response) => {
+        if (chrome.runtime.lastError) {
+            console.error('[VoxLocal] Runtime error:', chrome.runtime.lastError);
+            updateStatus('Error: ' + chrome.runtime.lastError.message, 'error');
+            resetStreamingState();
+            return;
+        }
+
+        if (!response || !response.success) {
+            console.error('[VoxLocal] Streaming TTS failed:', response?.error);
+            updateStatus('Error: ' + (response?.error || 'Streaming failed'), 'error');
+            resetStreamingState();
+        }
+    });
+}
 
 // Function to send text to TTS for speech generation
 function sendToTTS(text, voice, speed, loadingMessage = 'Generating speech...') {
@@ -94,12 +141,12 @@ async function speakFromPage(type) {
                 return;
             }
 
-            // Use the text and speak it using existing logic
+            // Use the text and speak it using streaming logic
             const text = response.text.trim();
             console.log(`[VoxLocal] Got ${type} text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
 
-            // Send to TTS with page-specific loading message
-            sendToTTS(text, voice, speed, 'Converting page text to speech...');
+            // Send to streaming TTS with page-specific loading message
+            sendStreamingTTS(text, voice, speed);
         });
     } catch (error) {
         console.error('[VoxLocal] Error:', error);
@@ -134,8 +181,8 @@ speakBtn.addEventListener('click', async () => {
 
     console.log(`[VoxLocal] Speak button clicked - text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}", voice: ${voice}, speed: ${speed}x`);
 
-    // Send to TTS
-    sendToTTS(text, voice, speed);
+    // Send to streaming TTS
+    sendStreamingTTS(text, voice, speed);
 });
 
 // Stop button click handler
@@ -146,7 +193,14 @@ stopBtn.addEventListener('click', () => {
         currentAudio.pause();
         currentAudio = null;
     }
-    resetButtons();
+
+    // Reset streaming state
+    if (isStreaming) {
+        resetStreamingState();
+    } else {
+        resetButtons();
+    }
+
     updateStatus('Stopped', 'ready');
 });
 
@@ -233,6 +287,127 @@ function updateModelStatus(message) {
         modelStatusElement.textContent = message;
     }
 }
+
+// Reset streaming state
+function resetStreamingState() {
+    audioQueue = [];
+    isStreaming = false;
+    streamChunksReceived = 0;
+    totalStreamChunks = 0;
+    resetButtons();
+}
+
+// Play next audio chunk from queue
+function playNextAudioChunk() {
+    console.log(`[VoxLocal] playNextAudioChunk called. Queue length: ${audioQueue.length}, isStreaming: ${isStreaming}, currentAudio: ${!!currentAudio}`);
+
+    if (audioQueue.length === 0) {
+        if (isStreaming) {
+            updateStatus('Waiting for next chunk...', 'loading');
+        } else {
+            updateStatus('Ready', 'ready');
+            resetButtons();
+        }
+        return;
+    }
+
+    const chunk = audioQueue.shift();
+    console.log(`[VoxLocal] Playing audio chunk ${chunk.chunkIndex + 1}/${chunk.totalChunks}. Remaining queue: ${audioQueue.length}`);
+
+    updateStatus(`Speaking chunk ${chunk.chunkIndex + 1}/${chunk.totalChunks}...`, 'speaking');
+
+    try {
+        // Convert base64 back to audio
+        const audioData = atob(chunk.audio);
+        const arrayBuffer = new ArrayBuffer(audioData.length);
+        const uint8Array = new Uint8Array(arrayBuffer);
+        for (let i = 0; i < audioData.length; i++) {
+            uint8Array[i] = audioData.charCodeAt(i);
+        }
+
+        const blob = new Blob([uint8Array], { type: 'audio/wav' });
+        const audioUrl = URL.createObjectURL(blob);
+
+        currentAudio = new Audio(audioUrl);
+        currentAudio.playbackRate = chunk.speed || 1;
+
+        currentAudio.onended = () => {
+            console.log(`[VoxLocal] Chunk ${chunk.chunkIndex + 1} playback completed`);
+            URL.revokeObjectURL(audioUrl);
+            currentAudio = null;
+            // Play next chunk
+            console.log(`[VoxLocal] Calling playNextAudioChunk after chunk completion`);
+            playNextAudioChunk();
+        };
+
+        currentAudio.onerror = (error) => {
+            console.error('[VoxLocal] Audio chunk playback error:', error);
+            URL.revokeObjectURL(audioUrl);
+            currentAudio = null;
+            resetStreamingState();
+            updateStatus('Error playing audio chunk', 'error');
+        };
+
+        console.log('[VoxLocal] Starting chunk audio playback...');
+        currentAudio.play().then(() => {
+            console.log(`[VoxLocal] Chunk ${chunk.chunkIndex + 1} started playing successfully`);
+        }).catch((error) => {
+            console.error('[VoxLocal] Audio chunk play failed:', error.message);
+            URL.revokeObjectURL(audioUrl);
+            currentAudio = null;
+            resetStreamingState();
+            updateStatus('Error: ' + error.message, 'error');
+        });
+
+    } catch (error) {
+        console.error('[VoxLocal] Error creating audio chunk:', error);
+        resetStreamingState();
+        updateStatus('Error: ' + error.message, 'error');
+    }
+}
+
+// Message listeners for streaming TTS
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    switch (message.action) {
+        case 'stream_chunk':
+            console.log(`[VoxLocal] Received streaming chunk ${message.chunkIndex + 1}/${message.totalChunks}`);
+            streamChunksReceived = message.chunkIndex + 1;
+            totalStreamChunks = message.totalChunks;
+
+            // Add chunk to queue
+            audioQueue.push(message);
+            console.log(`[VoxLocal] Added chunk to queue. Queue now has ${audioQueue.length} chunks`);
+
+            // Update status
+            updateStatus(`Received chunk ${streamChunksReceived}/${totalStreamChunks}`, 'loading');
+
+            // If this is the first chunk OR no audio is currently playing, start playing
+            if (streamChunksReceived === 1 || !currentAudio) {
+                console.log(`[VoxLocal] Starting playback - first chunk or no current audio playing`);
+                playNextAudioChunk();
+            }
+
+            break;
+
+        case 'stream_complete':
+            console.log('[VoxLocal] Streaming complete');
+            isStreaming = false;
+
+            // If no chunks are currently playing, update status
+            if (!currentAudio) {
+                updateStatus('Ready', 'ready');
+                resetButtons();
+            }
+
+            break;
+
+        case 'stream_error':
+            console.error('[VoxLocal] Streaming error:', message.error);
+            updateStatus('Streaming error: ' + message.error, 'error');
+            resetStreamingState();
+            break;
+    }
+});
 
 // Initialize on load
 document.addEventListener('DOMContentLoaded', () => {

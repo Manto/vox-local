@@ -18,6 +18,39 @@ class TTSSingleton {
     }
 }
 
+// Text splitting utility to break long text into sentences for streaming TTS
+const splitTextIntoSentences = (text, maxLength = 100) => {
+    // Split text into sentences using common sentence-ending patterns
+    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
+
+    const chunks = [];
+    let currentChunk = '';
+
+    for (const sentence of sentences) {
+        const trimmedSentence = sentence.trim();
+        if (!trimmedSentence) continue;
+
+        // Add period back if not present (since we split on them)
+        const sentenceWithPeriod = trimmedSentence + '.';
+
+        // If adding this sentence would exceed max length, start a new chunk
+        if (currentChunk && (currentChunk + ' ' + sentenceWithPeriod).length > maxLength) {
+            chunks.push(currentChunk.trim());
+            currentChunk = sentenceWithPeriod;
+        } else {
+            currentChunk += (currentChunk ? ' ' : '') + sentenceWithPeriod;
+        }
+    }
+
+    // Add the last chunk if it exists
+    if (currentChunk.trim()) {
+        chunks.push(currentChunk.trim());
+    }
+
+    // If no sentences were found or text is very short, return the original text as one chunk
+    return chunks.length > 0 ? chunks : [text];
+};
+
 // Create generic TTS function, which will be reused for the different types of events.
 const generateSpeech = async (text, voice = 'af_heart', speed = 1) => {
     console.log(`[VoxLocal] Starting speech generation for text (${text.length} characters) with voice: ${voice}, speed: ${speed}x`);
@@ -76,6 +109,87 @@ const generateSpeech = async (text, voice = 'af_heart', speed = 1) => {
         voice: voice,
         speed: speed
     };
+};
+
+// Streaming TTS function that processes text in chunks and sends audio segments
+const generateStreamingSpeech = async (text, voice = 'af_heart', speed = 1, onChunkComplete) => {
+    console.log(`[VoxLocal] Starting streaming speech generation for text (${text.length} characters) with voice: ${voice}, speed: ${speed}x`);
+
+    // Split text into manageable chunks
+    const textChunks = splitTextIntoSentences(text);
+    console.log(`[VoxLocal] Split text into ${textChunks.length} chunks for streaming`);
+
+    // Get the TTS instance
+    console.log('[VoxLocal] Checking TTS model availability...');
+
+    // Track progress milestones to only log at 25%, 50%, 75%, 100%
+    let lastDownloadProgress = 0;
+
+    let tts = await TTSSingleton.getInstance((data) => {
+        const currentProgress = Math.round(data.progress * 100)/100;
+        const milestones = [25, 50, 75, 100];
+
+        if (data.status === 'progress') {
+            for (const milestone of milestones) {
+                if (lastDownloadProgress < milestone && currentProgress >= milestone) {
+                    console.log(`[VoxLocal] Downloading model... ${milestone}% complete`);
+                    break;
+                }
+            }
+            lastDownloadProgress = currentProgress;
+        }
+    });
+
+    console.log('[VoxLocal] TTS model ready, starting streaming audio generation...');
+
+    const results = [];
+
+    // Process each chunk
+    for (let i = 0; i < textChunks.length; i++) {
+        const chunk = textChunks[i];
+        console.log(`[VoxLocal] Processing chunk ${i + 1}/${textChunks.length}: "${chunk.substring(0, 50)}${chunk.length > 50 ? '...' : ''}"`);
+
+        try {
+            // Generate audio for this chunk
+            let audio = await tts.generate(chunk, { voice, speed });
+            console.log(`[VoxLocal] Chunk ${i + 1} audio generated successfully (${audio.sample_rate}Hz sample rate)`);
+
+            // Convert to base64
+            const blob = audio.toBlob();
+            const arrayBuffer = await blob.arrayBuffer();
+            const uint8Array = new Uint8Array(arrayBuffer);
+
+            let binaryString = '';
+            for (let j = 0; j < uint8Array.length; j++) {
+                binaryString += String.fromCharCode(uint8Array[j]);
+            }
+            const base64Audio = btoa(binaryString);
+
+            const chunkResult = {
+                audio: base64Audio,
+                sampleRate: audio.sample_rate,
+                voice: voice,
+                speed: speed,
+                chunkIndex: i,
+                totalChunks: textChunks.length,
+                text: chunk
+            };
+
+            results.push(chunkResult);
+
+            // Call the callback with this chunk result
+            if (onChunkComplete) {
+                onChunkComplete(chunkResult);
+            }
+
+        } catch (error) {
+            console.error(`[VoxLocal] Error processing chunk ${i + 1}:`, error);
+            throw error;
+        }
+    }
+
+    console.log(`[VoxLocal] Streaming speech generation completed (${results.length} chunks processed)`);
+    return results;
 };
 
 ////////////////////// 1. Context Menus //////////////////////
@@ -139,21 +253,95 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
 ////////////////////// 2. Message Events /////////////////////
 //
+let activeStreamingRequest = null; // Track active streaming request
+
 // Listen for messages from the UI, process it, and send the result back.
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.action !== 'speak') return; // Ignore messages that are not meant for speech generation.
+    if (message.action !== 'speak' && message.action !== 'speak_stream') return; // Ignore messages that are not meant for speech generation.
 
-    console.log(`[VoxLocal] Received speak request from ${sender.url || 'popup'}`);
+    console.log(`[VoxLocal] Received ${message.action} request from ${sender.url || 'popup'}`);
 
-    // Run TTS asynchronously
-    (async function () {
-        // Generate speech
-        let result = await generateSpeech(message.text, message.voice, message.speed);
+    if (message.action === 'speak_stream') {
+        // Handle streaming TTS
+        if (activeStreamingRequest) {
+            console.log('[VoxLocal] Cancelling previous streaming request');
+            activeStreamingRequest.cancelled = true;
+        }
 
-        console.log('[VoxLocal] Sending audio response to popup');
-        // Send response back to UI
-        sendResponse(result);
-    })();
+        activeStreamingRequest = { cancelled: false };
+
+        // Run streaming TTS asynchronously
+        (async function () {
+            try {
+                await generateStreamingSpeech(
+                    message.text,
+                    message.voice,
+                    message.speed,
+                    (chunkResult) => {
+                        // Send each chunk back immediately
+                        if (!activeStreamingRequest.cancelled) {
+                            console.log(`[VoxLocal] Sending chunk ${chunkResult.chunkIndex + 1}/${chunkResult.totalChunks} to popup`);
+                            try {
+                                chrome.runtime.sendMessage({
+                                    action: 'stream_chunk',
+                                    ...chunkResult
+                                });
+                            } catch (sendError) {
+                                console.error('[VoxLocal] Failed to send chunk message:', sendError);
+                            }
+                        }
+                    }
+                );
+
+                // Send completion message
+                if (!activeStreamingRequest.cancelled) {
+                    console.log('[VoxLocal] Streaming complete, sending completion message');
+                    try {
+                        chrome.runtime.sendMessage({
+                            action: 'stream_complete'
+                        });
+                    } catch (sendError) {
+                        console.error('[VoxLocal] Failed to send completion message:', sendError);
+                    }
+                }
+
+                activeStreamingRequest = null;
+                sendResponse({ success: true });
+
+            } catch (error) {
+                console.error('[VoxLocal] Streaming TTS error:', error);
+                if (!activeStreamingRequest.cancelled) {
+                    try {
+                        chrome.runtime.sendMessage({
+                            action: 'stream_error',
+                            error: error.message
+                        });
+                    } catch (sendError) {
+                        console.error('[VoxLocal] Failed to send error message:', sendError);
+                    }
+                }
+                activeStreamingRequest = null;
+                sendResponse({ success: false, error: error.message });
+            }
+        })();
+
+    } else {
+        // Handle regular (non-streaming) TTS
+        // Run TTS asynchronously
+        (async function () {
+            try {
+                // Generate speech
+                let result = await generateSpeech(message.text, message.voice, message.speed);
+
+                console.log('[VoxLocal] Sending audio response to popup');
+                // Send response back to UI
+                sendResponse(result);
+            } catch (error) {
+                console.error('[VoxLocal] TTS error:', error);
+                sendResponse({ success: false, error: error.message });
+            }
+        })();
+    }
 
     // return true to indicate we will send a response asynchronously
     // see https://stackoverflow.com/a/46628145 for more information

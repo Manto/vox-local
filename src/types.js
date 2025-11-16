@@ -23,7 +23,13 @@ const MessageTypes = {
   GET_TTS_STATUS: 'GET_TTS_STATUS',
 
   // Legacy popup messages
-  SPEAK: 'speak'
+  SPEAK: 'speak',
+
+  // Streaming TTS messages
+  SPEAK_STREAM: 'speak_stream',
+  STREAM_CHUNK: 'stream_chunk',
+  STREAM_COMPLETE: 'stream_complete',
+  STREAM_ERROR: 'stream_error'
 };
 
 export { MessageTypes };
