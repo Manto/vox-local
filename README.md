@@ -54,7 +54,7 @@ High-quality text-to-speech for the web built upon [Kokoro.js](https://github.co
 
 ### Project Structure
 
-```
+```text
 src/
 ├── background.js    # Service worker - handles TTS model loading and audio generation
 ├── popup.html       # Extension popup UI
