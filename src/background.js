@@ -9,8 +9,8 @@ class TTSSingleton {
     static async getInstance(progress_callback = null) {
         if (this.instance === null) {
             this.instance = await KokoroTTS.from_pretrained(this.model_id, {
-                dtype: 'q8', // Use quantized model for better performance
-                device: 'wasm', // Use WebAssembly for Chrome extension compatibility
+                dtype: 'fp32',
+                device: 'webgpu',
                 progress_callback: progress_callback
             });
         }
@@ -257,7 +257,7 @@ let activeStreamingRequest = null; // Track active streaming request
 
 // Listen for messages from the UI, process it, and send the result back.
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.action !== 'speak' && message.action !== 'speak_stream') return; // Ignore messages that are not meant for speech generation.
+    if (message.action !== 'speak' && message.action !== 'speak_stream' && message.action !== 'cancel_stream') return; // Ignore messages that are not meant for speech generation.
 
     console.log(`[VoxLocal] Received ${message.action} request from ${sender.url || 'popup'}`);
 
@@ -324,6 +324,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 sendResponse({ success: false, error: error.message });
             }
         })();
+
+    } else if (message.action === 'cancel_stream') {
+        // Handle streaming cancellation
+        if (activeStreamingRequest) {
+            console.log('[VoxLocal] Cancelling active streaming request');
+            activeStreamingRequest.cancelled = true;
+            activeStreamingRequest = null;
+        }
+        sendResponse({ success: true });
 
     } else {
         // Handle regular (non-streaming) TTS

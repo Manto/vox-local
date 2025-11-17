@@ -28,6 +28,22 @@ speedSlider.addEventListener('input', (event) => {
     speedValue.textContent = `${event.target.value}x`;
 });
 
+// Function to cancel streaming TTS
+function cancelStreamingTTS() {
+    console.log('[VoxLocal] Cancelling streaming TTS request');
+
+    // Send cancel message to background
+    const message = {
+        action: 'cancel_stream'
+    };
+
+    chrome.runtime.sendMessage(message, (response) => {
+        if (chrome.runtime.lastError) {
+            console.error('[VoxLocal] Error sending cancel message:', chrome.runtime.lastError);
+        }
+    });
+}
+
 // Function to send text to streaming TTS for speech generation
 function sendStreamingTTS(text, voice, speed) {
     // Reset streaming state
@@ -36,11 +52,8 @@ function sendStreamingTTS(text, voice, speed) {
     streamChunksReceived = 0;
     totalStreamChunks = 0;
 
-    // Disable buttons and show loading
-    speakBtn.disabled = true;
-    stopBtn.disabled = false;
-    speakSelectionBtn.disabled = true;
-    speakPageBtn.disabled = true;
+    // Update button states for streaming
+    updateButtonStates();
 
     updateStatus('Starting streaming speech...', 'loading');
 
@@ -194,8 +207,10 @@ stopBtn.addEventListener('click', () => {
         currentAudio = null;
     }
 
-    // Reset streaming state
+    // Cancel streaming if active
     if (isStreaming) {
+        console.log('[VoxLocal] Cancelling active streaming request');
+        cancelStreamingTTS();
         resetStreamingState();
     } else {
         resetButtons();
@@ -294,7 +309,21 @@ function resetStreamingState() {
     isStreaming = false;
     streamChunksReceived = 0;
     totalStreamChunks = 0;
-    resetButtons();
+    updateButtonStates();
+}
+
+// Update button states based on streaming status
+function updateButtonStates() {
+    if (isStreaming) {
+        // During streaming, disable all speak buttons, enable stop
+        speakBtn.disabled = true;
+        speakSelectionBtn.disabled = true;
+        speakPageBtn.disabled = true;
+        stopBtn.disabled = false;
+    } else {
+        // Normal state
+        resetButtons();
+    }
 }
 
 // Play next audio chunk from queue
@@ -396,7 +425,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             // If no chunks are currently playing, update status
             if (!currentAudio) {
                 updateStatus('Ready', 'ready');
-                resetButtons();
+                updateButtonStates();
             }
 
             break;
