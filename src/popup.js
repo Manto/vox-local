@@ -44,6 +44,30 @@ function cancelStreamingTTS() {
     });
 }
 
+// Function to query model status from background
+function queryModelStatus() {
+    console.log('[VoxLocal] Querying model status from background');
+
+    const message = {
+        action: 'query_model_status'
+    };
+
+    chrome.runtime.sendMessage(message, (response) => {
+        if (chrome.runtime.lastError) {
+            console.error('[VoxLocal] Error querying model status:', chrome.runtime.lastError);
+            updateModelStatus('Model status unknown');
+            return;
+        }
+
+        if (response && response.loaded) {
+            const modelName = response.modelName ? ` (${response.modelName})` : '';
+            updateModelStatus(`Model loaded${modelName}`);
+        } else {
+            updateModelStatus('Model will load on first use');
+        }
+    });
+}
+
 // Function to send text to streaming TTS for speech generation
 function sendStreamingTTS(text, voice, speed) {
     // Reset streaming state
@@ -525,5 +549,5 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('[VoxLocal] Popup initialized and ready');
     loadSettings(); // Load saved settings
     updateStatus('Ready');
-    updateModelStatus('Model will load on first use');
+    queryModelStatus(); // Query actual model status from background
 });

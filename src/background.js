@@ -310,9 +310,25 @@ let requestIdCounter = 0;
 
 // Listen for messages from the UI, process it, and send the result back.
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.action !== 'speak' && message.action !== 'speak_stream' && message.action !== 'cancel_stream') return; // Ignore messages that are not meant for speech generation.
+    if (message.action !== 'speak' && message.action !== 'speak_stream' && message.action !== 'cancel_stream' && message.action !== 'query_model_status') return; // Ignore messages that are not meant for speech generation or status queries.
 
     console.log(`[VoxLocal] Received ${message.action} request from ${sender.url || 'popup'}`);
+
+    if (message.action === 'query_model_status') {
+        // Check if any TTS instances are loaded
+        const loaded = TTSSingleton.instances.size > 0;
+        let modelName = null;
+
+        if (loaded) {
+            // Get the first loaded model key (dtype-device combination)
+            const firstKey = TTSSingleton.instances.keys().next().value;
+            modelName = firstKey ? firstKey.replace('-', '/') : null; // Convert fp32-webgpu to fp32/webgpu
+        }
+
+        console.log(`[VoxLocal] Model status query - loaded: ${loaded}, modelName: ${modelName}`);
+        sendResponse({ loaded, modelName });
+        return true; // Keep the message channel open for async response
+    }
 
     if (message.action === 'speak_stream') {
         console.log(`[VoxLocal] Received streaming request - dtype: ${message.dtype}, device: ${message.device}, voice: ${message.voice}, speed: ${message.speed}x`);
