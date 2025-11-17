@@ -47,6 +47,7 @@ coverage/
 # Chrome extension development
 *.pem
 *.crx
+*.zip
 
 # Temporary files
 tmp/

@@ -1,9 +1,10 @@
 {
   "name": "voxlocal-extension",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "High-quality text-to-speech Chrome extension built upon Kokoro.js - 82M parameter TTS model running entirely in the browser",
   "scripts": {
-    "build": "webpack",
+    "build": "webpack --mode production",
+    "build:dev": "webpack",
     "dev": "webpack --watch"
   },
   "type": "module",
