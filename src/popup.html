@@ -1,63 +1,105 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VoxLocal | Browser Extension</title>
-
-    <!-- Load styles -->
-    <link rel="stylesheet" href="popup.css" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VoxLocal</title>
+  <link rel="stylesheet" href="popup.css">
 </head>
-
 <body>
-    <div class="container">
-        <h1>🎵 VoxLocal</h1>
-        <h2>High-quality text-to-speech in your browser!</h2>
+  <div class="container">
+    <header>
+      <h1>🎙️ VoxLocal</h1>
+      <p class="subtitle">Text-to-Speech with WebGPU</p>
+    </header>
 
-        <div class="input-section">
-            <textarea id="text" placeholder="Enter text to speak..." rows="4"></textarea>
-        </div>
-
-        <div class="controls-section">
-            <div class="control-row">
-                <label for="voice-select">Voice:</label>
-                <select id="voice-select">
-                    <option value="af_heart">Heart (Female, Recommended)</option>
-                    <option value="af_bella">Bella (Female, High Quality)</option>
-                    <option value="am_michael">Michael (Male)</option>
-                    <option value="am_fenrir">Fenrir (Male)</option>
-                    <option value="bf_emma">Emma (British Female)</option>
-                    <option value="bm_george">George (British Male)</option>
-                </select>
-            </div>
-
-            <div class="control-row">
-                <label for="speed-slider">Speed:</label>
-                <input type="range" id="speed-slider" min="0.5" max="2" step="0.1" value="1">
-                <span id="speed-value">1.0x</span>
-            </div>
-        </div>
-
-        <div class="button-section">
-            <button id="speak-btn">🔊 Speak</button>
-            <button id="stop-btn" disabled>⏹️ Stop</button>
-        </div>
-
-        <div class="status-section">
-            <div id="status">Ready to speak...</div>
-            <div id="progress" style="display: none;">
-                <div class="progress-bar">
-                    <div class="progress-fill" id="progress-fill"></div>
-                </div>
-            </div>
-        </div>
-
-        <div class="instructions">
-            <p><strong>Tip:</strong> Right-click on selected text anywhere on the web to hear it spoken!</p>
-        </div>
+    <div class="status-section">
+      <div id="status" class="status-badge ready">Ready</div>
+      <div id="model-status" class="model-status">Model not loaded</div>
     </div>
-</body>
 
+    <div class="controls">
+      <button id="speak-selection" class="btn btn-primary" title="Speak selected text">
+        <span class="icon">📖</span> Speak Selection
+      </button>
+
+      <button id="speak-page" class="btn btn-primary" title="Speak entire page">
+        <span class="icon">📄</span> Speak Page
+      </button>
+
+      <button id="speak-btn" class="btn btn-primary" title="Speak entered text">
+        <span class="icon">🔊</span> Speak Text
+      </button>
+
+      <button id="stop-btn" class="btn btn-danger" disabled title="Stop speaking">
+        <span class="icon">⏹️</span> Stop
+      </button>
+    </div>
+
+    <div class="input-section">
+      <textarea id="text" placeholder="Enter text to speak..." rows="3"></textarea>
+    </div>
+
+    <div class="settings">
+      <h3>Voice Settings</h3>
+
+      <div class="setting-group">
+        <label for="voice-select">Voice:</label>
+        <select id="voice-select">
+          <option value="af_heart">Heart (Female)</option>
+          <option value="af_bella">Bella (Female)</option>
+          <option value="am_michael">Michael (Male)</option>
+          <option value="am_fenrir">Fenrir (Male)</option>
+          <option value="bf_emma">Emma (British Female)</option>
+          <option value="bm_george">George (British Male)</option>
+        </select>
+      </div>
+
+      <div class="setting-group">
+        <label for="speed-slider">Speed: <span id="speed-value">1.0</span>x</label>
+        <input type="range" id="speed-slider" min="0.5" max="2.0" step="0.1" value="1.0">
+      </div>
+
+      <div class="setting-group">
+        <label for="dtype">Model Quality:</label>
+        <select id="dtype">
+          <option value="fp32">FP32 (Highest Quality)</option>
+          <option value="fp16">FP16 (High Quality)</option>
+          <option value="q8">Q8 (Balanced)</option>
+          <option value="q4">Q4 (Fast)</option>
+          <option value="q4f16">Q4F16 (Balanced)</option>
+        </select>
+      </div>
+
+      <div class="setting-group">
+        <label for="device">Device:</label>
+        <select id="device">
+          <option value="webgpu">WebGPU (GPU)</option>
+          <option value="wasm">WASM (CPU)</option>
+        </select>
+        <small id="device-note" class="setting-note">WebGPU requires FP32 precision</small>
+      </div>
+
+      <div class="setting-group">
+        <label>
+          <input type="checkbox" id="auto-highlight">
+          Highlight text while speaking
+        </label>
+      </div>
+    </div>
+
+    <div class="info">
+      <details>
+        <summary>ℹ️ How to use</summary>
+        <ul>
+          <li><strong>Speak Selection:</strong> Select text on any webpage, then click this button</li>
+          <li><strong>Speak Page:</strong> Reads all visible text on the current page</li>
+          <li><strong>Speak Text:</strong> Enter text above and click to hear it spoken</li>
+          <li><strong>First use:</strong> Model will download (~50-200MB depending on quality)</li>
+          <li><strong>WebGPU:</strong> Requires Chrome/Edge with WebGPU enabled</li>
+        </ul>
+      </details>
+    </div>
+  </div>
+</body>
 </html>
