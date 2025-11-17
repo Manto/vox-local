@@ -197,6 +197,14 @@ header h1 {
   margin-right: 6px;
 }
 
+.setting-note {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
 /* Info Section */
 .info {
   border-top: 1px solid var(--border-color);

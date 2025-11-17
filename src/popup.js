@@ -62,10 +62,12 @@ function sendStreamingTTS(text, voice, speed) {
         action: 'speak_stream',
         text: text,
         voice: voice,
-        speed: speed
+        speed: speed,
+        dtype: dtypeSelect.value,
+        device: deviceSelect.value
     };
 
-    console.log(`[VoxLocal] Sending streaming speak message to background script - text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}", voice: ${voice}, speed: ${speed}x`);
+    console.log(`[VoxLocal] Sending streaming speak message to background script - text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}", voice: ${voice}, speed: ${speed}x, dtype: ${dtypeSelect.value}, device: ${deviceSelect.value}`);
 
     chrome.runtime.sendMessage(message, (response) => {
         if (chrome.runtime.lastError) {
@@ -98,10 +100,12 @@ function sendToTTS(text, voice, speed, loadingMessage = 'Generating speech...') 
         action: 'speak',
         text: text,
         voice: voice,
-        speed: speed
+        speed: speed,
+        dtype: dtypeSelect.value,
+        device: deviceSelect.value
     };
 
-    console.log(`[VoxLocal] Sending speak message to background script - text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}", voice: ${voice}, speed: ${speed}x`);
+    console.log(`[VoxLocal] Sending speak message to background script - text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}", voice: ${voice}, speed: ${speed}x, dtype: ${dtypeSelect.value}, device: ${deviceSelect.value}`);
 
     chrome.runtime.sendMessage(message, (response) => {
         if (chrome.runtime.lastError) {
@@ -438,9 +442,82 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 });
 
+// Settings storage functions
+async function saveSettings() {
+    const settings = {
+        dtype: dtypeSelect.value,
+        device: deviceSelect.value,
+        voice: voiceSelect.value,
+        speed: parseFloat(speedSlider.value),
+        autoHighlight: autoHighlightCheckbox.checked
+    };
+
+    try {
+        await chrome.storage.sync.set({ voxLocalSettings: settings });
+        console.log('[VoxLocal] Settings saved:', settings);
+    } catch (error) {
+        console.error('[VoxLocal] Error saving settings:', error);
+    }
+}
+
+async function loadSettings() {
+    try {
+        const result = await chrome.storage.sync.get('voxLocalSettings');
+        const settings = result.voxLocalSettings || {};
+
+        // Apply saved settings with defaults
+        deviceSelect.value = settings.device || 'webgpu';
+        dtypeSelect.value = settings.dtype || 'fp32';
+        voiceSelect.value = settings.voice || 'af_heart';
+        speedSlider.value = settings.speed || 1.0;
+        speedValue.textContent = `${speedSlider.value}x`;
+        autoHighlightCheckbox.checked = settings.autoHighlight || false;
+
+        // Apply WebGPU constraint - must use FP32
+        handleDeviceChange();
+
+        console.log('[VoxLocal] Settings loaded:', settings);
+    } catch (error) {
+        console.error('[VoxLocal] Error loading settings:', error);
+        // Set defaults if loading fails
+        deviceSelect.value = 'webgpu';
+        dtypeSelect.value = 'fp32';
+        voiceSelect.value = 'af_heart';
+        speedSlider.value = 1.0;
+        speedValue.textContent = '1.0x';
+        autoHighlightCheckbox.checked = false;
+
+        // Apply WebGPU constraint
+        handleDeviceChange();
+    }
+}
+
+// Function to handle device changes - WebGPU requires FP32
+function handleDeviceChange() {
+    if (deviceSelect.value === 'webgpu') {
+        dtypeSelect.value = 'fp32';
+        dtypeSelect.disabled = true;
+        console.log('[VoxLocal] WebGPU selected - forcing FP32 dtype');
+    } else {
+        dtypeSelect.disabled = false;
+        console.log('[VoxLocal] WASM selected - dtype selection enabled');
+    }
+    saveSettings(); // Save the updated settings
+}
+
+// Save settings when controls change
+dtypeSelect.addEventListener('change', saveSettings);
+deviceSelect.addEventListener('change', () => {
+    handleDeviceChange();
+});
+voiceSelect.addEventListener('change', saveSettings);
+speedSlider.addEventListener('change', saveSettings);
+autoHighlightCheckbox.addEventListener('change', saveSettings);
+
 // Initialize on load
 document.addEventListener('DOMContentLoaded', () => {
     console.log('[VoxLocal] Popup initialized and ready');
+    loadSettings(); // Load saved settings
     updateStatus('Ready');
     updateModelStatus('Model will load on first use');
 });

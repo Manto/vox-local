@@ -4,17 +4,23 @@ import { KokoroTTS } from 'kokoro-js';
 
 class TTSSingleton {
     static model_id = 'onnx-community/Kokoro-82M-v1.0-ONNX';
-    static instance = null;
+    static instances = new Map(); // Store instances by dtype-device combination
 
-    static async getInstance(progress_callback = null) {
-        if (this.instance === null) {
-            this.instance = await KokoroTTS.from_pretrained(this.model_id, {
-                dtype: 'fp32',
-                device: 'webgpu',
+    static async getInstance(dtype = 'fp32', device = 'webgpu', progress_callback = null) {
+        const key = `${dtype}-${device}`;
+
+        if (!this.instances.has(key)) {
+            console.log(`[VoxLocal] Creating new TTS instance for ${key} (dtype: ${dtype}, device: ${device})`);
+            this.instances.set(key, await KokoroTTS.from_pretrained(this.model_id, {
+                dtype: dtype,
+                device: device,
                 progress_callback: progress_callback
-            });
+            }));
+        } else {
+            console.log(`[VoxLocal] Reusing existing TTS instance for ${key} (dtype: ${dtype}, device: ${device})`);
         }
-        return this.instance;
+
+        return this.instances.get(key);
     }
 }
 
@@ -52,8 +58,8 @@ const splitTextIntoSentences = (text, maxLength = 100) => {
 };
 
 // Create generic TTS function, which will be reused for the different types of events.
-const generateSpeech = async (text, voice = 'af_heart', speed = 1) => {
-    console.log(`[VoxLocal] Starting speech generation for text (${text.length} characters) with voice: ${voice}, speed: ${speed}x`);
+const generateSpeech = async (text, voice = 'af_heart', speed = 1, dtype = 'fp32', device = 'webgpu') => {
+    console.log(`[VoxLocal] Starting speech generation for text (${text.length} characters) with voice: ${voice}, speed: ${speed}x, dtype: ${dtype}, device: ${device}`);
 
     // Get the TTS instance. This will load and build the model when run for the first time.
     console.log('[VoxLocal] Checking TTS model availability...');
@@ -61,7 +67,7 @@ const generateSpeech = async (text, voice = 'af_heart', speed = 1) => {
     // Track progress milestones to only log at 25%, 50%, 75%, 100%
     let lastDownloadProgress = 0;
 
-    let tts = await TTSSingleton.getInstance((data) => {
+    let tts = await TTSSingleton.getInstance(dtype, device, (data) => {
         // You can track the progress of the model loading here.
         // e.g., you can send `data` back to the UI to indicate a progress bar
 
@@ -112,8 +118,8 @@ const generateSpeech = async (text, voice = 'af_heart', speed = 1) => {
 };
 
 // Streaming TTS function that processes text in chunks and sends audio segments
-const generateStreamingSpeech = async (text, voice = 'af_heart', speed = 1, onChunkComplete) => {
-    console.log(`[VoxLocal] Starting streaming speech generation for text (${text.length} characters) with voice: ${voice}, speed: ${speed}x`);
+const generateStreamingSpeech = async (text, voice = 'af_heart', speed = 1, dtype = 'fp32', device = 'webgpu', onChunkComplete) => {
+    console.log(`[VoxLocal] Starting streaming speech generation for text (${text.length} characters) with voice: ${voice}, speed: ${speed}x, dtype: ${dtype}, device: ${device}`);
 
     // Split text into manageable chunks
     const textChunks = splitTextIntoSentences(text);
@@ -125,7 +131,7 @@ const generateStreamingSpeech = async (text, voice = 'af_heart', speed = 1, onCh
     // Track progress milestones to only log at 25%, 50%, 75%, 100%
     let lastDownloadProgress = 0;
 
-    let tts = await TTSSingleton.getInstance((data) => {
+    let tts = await TTSSingleton.getInstance(dtype, device, (data) => {
         const currentProgress = Math.round(data.progress * 100)/100;
         const milestones = [25, 50, 75, 100];
 
@@ -262,6 +268,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log(`[VoxLocal] Received ${message.action} request from ${sender.url || 'popup'}`);
 
     if (message.action === 'speak_stream') {
+        console.log(`[VoxLocal] Received streaming request - dtype: ${message.dtype}, device: ${message.device}, voice: ${message.voice}, speed: ${message.speed}x`);
+
         // Handle streaming TTS
         if (activeStreamingRequest) {
             console.log('[VoxLocal] Cancelling previous streaming request');
@@ -277,6 +285,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     message.text,
                     message.voice,
                     message.speed,
+                    message.dtype,
+                    message.device,
                     (chunkResult) => {
                         // Send each chunk back immediately
                         if (!activeStreamingRequest.cancelled) {
@@ -335,12 +345,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ success: true });
 
     } else {
+        console.log(`[VoxLocal] Received regular speak request - dtype: ${message.dtype}, device: ${message.device}, voice: ${message.voice}, speed: ${message.speed}x`);
+
         // Handle regular (non-streaming) TTS
         // Run TTS asynchronously
         (async function () {
             try {
                 // Generate speech
-                let result = await generateSpeech(message.text, message.voice, message.speed);
+                let result = await generateSpeech(message.text, message.voice, message.speed, message.dtype, message.device);
 
                 console.log('[VoxLocal] Sending audio response to popup');
                 // Send response back to UI
