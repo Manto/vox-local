@@ -25,7 +25,7 @@ class TTSSingleton {
 }
 
 // Text splitting utility to break long text into sentences for streaming TTS
-const splitTextIntoSentences = (text, maxLength = 100) => {
+const splitTextIntoSentences = (text, maxLength = 300) => {
     // Split text into sentences while preserving punctuation
     const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
 
@@ -44,30 +44,50 @@ const splitTextIntoSentences = (text, maxLength = 100) => {
                 currentChunk = '';
             }
 
-            // Split long sentence into words and rebuild chunks
-            const words = trimmedSentence.split(' ');
+            // Try to split at commas and periods first for better breaking points
+            const subSentences = trimmedSentence.match(/[^.,]+[.,]+/g) || [trimmedSentence];
             let tempChunk = '';
 
-            for (const word of words) {
-                const potentialChunk = tempChunk + (tempChunk ? ' ' : '') + word;
+            for (const subSentence of subSentences) {
+                const potentialChunk = tempChunk + (tempChunk ? ' ' : '') + subSentence;
                 if (potentialChunk.length > maxLength) {
                     if (tempChunk) {
-                        chunks.push(tempChunk);
-                        tempChunk = word;
+                        chunks.push(tempChunk.trim());
+                        tempChunk = subSentence;
                     } else {
-                        // Single word is too long, split it at character level
-                        const chars = word.split('');
-                        let charChunk = '';
-                        for (const char of chars) {
-                            if ((charChunk + char).length > maxLength) {
-                                if (charChunk) chunks.push(charChunk);
-                                charChunk = char;
+                        // If even a single sub-sentence is too long, fall back to word splitting
+                        const words = subSentence.split(' ');
+                        let wordChunk = '';
+
+                        for (const word of words) {
+                            const potentialWordChunk = wordChunk + (wordChunk ? ' ' : '') + word;
+                            if (potentialWordChunk.length > maxLength) {
+                                if (wordChunk) {
+                                    chunks.push(wordChunk.trim());
+                                    wordChunk = word;
+                                } else {
+                                    // Single word is too long, split it at character level
+                                    const chars = word.split('');
+                                    let charChunk = '';
+                                    for (const char of chars) {
+                                        if ((charChunk + char).length > maxLength) {
+                                            if (charChunk) chunks.push(charChunk);
+                                            charChunk = char;
+                                        } else {
+                                            charChunk += char;
+                                        }
+                                    }
+                                    if (charChunk) chunks.push(charChunk);
+                                    wordChunk = '';
+                                }
                             } else {
-                                charChunk += char;
+                                wordChunk = potentialWordChunk;
                             }
                         }
-                        if (charChunk) chunks.push(charChunk);
-                        tempChunk = '';
+
+                        if (wordChunk) {
+                            tempChunk = wordChunk;
+                        }
                     }
                 } else {
                     tempChunk = potentialChunk;
@@ -75,7 +95,7 @@ const splitTextIntoSentences = (text, maxLength = 100) => {
             }
 
             if (tempChunk) {
-                currentChunk = tempChunk;
+                currentChunk = tempChunk.trim();
             }
         } else {
             // If adding this sentence would exceed max length, start a new chunk
