@@ -5,14 +5,31 @@
   "scripts": {
     "build": "webpack --mode production",
     "build:dev": "webpack",
-    "dev": "webpack --watch"
+    "dev": "webpack --watch",
+    "test": "jest",
+    "test:watch": "jest --watch"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "transform": {
+      "^.+\\.js$": "babel-jest"
+    },
+    "moduleFileExtensions": ["js", "json"],
+    "testMatch": ["**/tests/**/*.test.js"],
+    "transformIgnorePatterns": [
+      "node_modules/(?!(kokoro-js|@huggingface)/)"
+    ]
   },
   "type": "module",
   "author": "Xenova",
   "license": "MIT",
   "devDependencies": {
+    "@babel/core": "^7.28.5",
+    "@babel/preset-env": "^7.28.5",
+    "babel-jest": "^29.7.0",
     "copy-webpack-plugin": "^11.0.0",
     "html-webpack-plugin": "^5.5.1",
+    "jest": "^29.7.0",
     "webpack": "^5.79.0",
     "webpack-cli": "^6.0.1"
   },
