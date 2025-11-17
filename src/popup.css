@@ -201,7 +201,7 @@ header h1 {
   display: block;
   margin-top: 2px;
   font-size: 11px;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   font-style: italic;
 }
 

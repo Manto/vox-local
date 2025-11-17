@@ -26,8 +26,8 @@ class TTSSingleton {
 
 // Text splitting utility to break long text into sentences for streaming TTS
 const splitTextIntoSentences = (text, maxLength = 100) => {
-    // Split text into sentences using common sentence-ending patterns
-    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
+    // Split text into sentences while preserving punctuation
+    const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
 
     const chunks = [];
     let currentChunk = '';
@@ -36,15 +36,55 @@ const splitTextIntoSentences = (text, maxLength = 100) => {
         const trimmedSentence = sentence.trim();
         if (!trimmedSentence) continue;
 
-        // Add period back if not present (since we split on them)
-        const sentenceWithPeriod = trimmedSentence + '.';
+        // Handle very long sentences that exceed maxLength by splitting them
+        if (trimmedSentence.length > maxLength) {
+            // If we have a current chunk, push it first
+            if (currentChunk.trim()) {
+                chunks.push(currentChunk.trim());
+                currentChunk = '';
+            }
 
-        // If adding this sentence would exceed max length, start a new chunk
-        if (currentChunk && (currentChunk + ' ' + sentenceWithPeriod).length > maxLength) {
-            chunks.push(currentChunk.trim());
-            currentChunk = sentenceWithPeriod;
+            // Split long sentence into words and rebuild chunks
+            const words = trimmedSentence.split(' ');
+            let tempChunk = '';
+
+            for (const word of words) {
+                const potentialChunk = tempChunk + (tempChunk ? ' ' : '') + word;
+                if (potentialChunk.length > maxLength) {
+                    if (tempChunk) {
+                        chunks.push(tempChunk);
+                        tempChunk = word;
+                    } else {
+                        // Single word is too long, split it at character level
+                        const chars = word.split('');
+                        let charChunk = '';
+                        for (const char of chars) {
+                            if ((charChunk + char).length > maxLength) {
+                                if (charChunk) chunks.push(charChunk);
+                                charChunk = char;
+                            } else {
+                                charChunk += char;
+                            }
+                        }
+                        if (charChunk) chunks.push(charChunk);
+                        tempChunk = '';
+                    }
+                } else {
+                    tempChunk = potentialChunk;
+                }
+            }
+
+            if (tempChunk) {
+                currentChunk = tempChunk;
+            }
         } else {
-            currentChunk += (currentChunk ? ' ' : '') + sentenceWithPeriod;
+            // If adding this sentence would exceed max length, start a new chunk
+            if (currentChunk && (currentChunk + ' ' + trimmedSentence).length > maxLength) {
+                chunks.push(currentChunk.trim());
+                currentChunk = trimmedSentence;
+            } else {
+                currentChunk += (currentChunk ? ' ' : '') + trimmedSentence;
+            }
         }
     }
 
@@ -152,6 +192,12 @@ const generateStreamingSpeech = async (text, voice = 'af_heart', speed = 1, dtyp
 
     // Process each chunk
     for (let i = 0; i < textChunks.length; i++) {
+        // Check if streaming was cancelled
+        if (activeStreamingRequest?.cancelled) {
+            console.log('[VoxLocal] Streaming cancelled by user');
+            break;
+        }
+
         const chunk = textChunks[i];
         console.log(`[VoxLocal] Processing chunk ${i + 1}/${textChunks.length}: "${chunk.substring(0, 50)}${chunk.length > 50 ? '...' : ''}"`);
 
@@ -260,6 +306,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 ////////////////////// 2. Message Events /////////////////////
 //
 let activeStreamingRequest = null; // Track active streaming request
+let requestIdCounter = 0;
 
 // Listen for messages from the UI, process it, and send the result back.
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -276,7 +323,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             activeStreamingRequest.cancelled = true;
         }
 
-        activeStreamingRequest = { cancelled: false };
+        const requestId = ++requestIdCounter;
+        activeStreamingRequest = { cancelled: false, id: requestId };
 
         // Run streaming TTS asynchronously
         (async function () {
@@ -289,7 +337,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     message.device,
                     (chunkResult) => {
                         // Send each chunk back immediately
-                        if (!activeStreamingRequest.cancelled) {
+                        if (activeStreamingRequest?.id === requestId && !activeStreamingRequest.cancelled) {
                             console.log(`[VoxLocal] Sending chunk ${chunkResult.chunkIndex + 1}/${chunkResult.totalChunks} to popup`);
                             try {
                                 chrome.runtime.sendMessage({
@@ -304,7 +352,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 );
 
                 // Send completion message
-                if (!activeStreamingRequest.cancelled) {
+                if (activeStreamingRequest?.id === requestId && !activeStreamingRequest.cancelled) {
                     console.log('[VoxLocal] Streaming complete, sending completion message');
                     try {
                         chrome.runtime.sendMessage({
@@ -320,7 +368,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
             } catch (error) {
                 console.error('[VoxLocal] Streaming TTS error:', error);
-                if (!activeStreamingRequest.cancelled) {
+                if (activeStreamingRequest?.id === requestId && !activeStreamingRequest.cancelled) {
                     try {
                         chrome.runtime.sendMessage({
                             action: 'stream_error',
