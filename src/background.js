@@ -26,8 +26,18 @@ class TTSSingleton {
 
 // Text splitting utility to break long text into sentences for streaming TTS
 const splitTextIntoSentences = (text, maxLength = 300) => {
-    // Split text into sentences while preserving punctuation
-    const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+    // Split text into sentences while preserving punctuation and trailing text
+    const sentenceMatches = text.match(/[^.!?]+[.!?]+/g);
+    const sentences = sentenceMatches || [];
+    // Calculate consumed characters and append any trailing text
+    if (sentenceMatches) {
+        const consumedLength = sentenceMatches.join('').length;
+        if (consumedLength < text.length) {
+            sentences.push(text.substring(consumedLength));
+        }
+    } else {
+        sentences.push(text);
+    }
 
     const chunks = [];
     let currentChunk = '';
@@ -45,7 +55,17 @@ const splitTextIntoSentences = (text, maxLength = 300) => {
             }
 
             // Try to split at commas and periods first for better breaking points
-            const subSentences = trimmedSentence.match(/[^.,]+[.,]+/g) || [trimmedSentence];
+            const subSentenceMatches = trimmedSentence.match(/[^.,]+[.,]+/g);
+            const subSentences = subSentenceMatches || [];
+            // Calculate consumed characters and append any trailing text
+            if (subSentenceMatches) {
+                const consumedLength = subSentenceMatches.join('').length;
+                if (consumedLength < trimmedSentence.length) {
+                    subSentences.push(trimmedSentence.substring(consumedLength));
+                }
+            } else {
+                subSentences.push(trimmedSentence);
+            }
             let tempChunk = '';
 
             for (const subSentence of subSentences) {
