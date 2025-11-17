@@ -54,17 +54,16 @@ const splitTextIntoSentences = (text, maxLength = 300) => {
                 currentChunk = '';
             }
 
-            // Try to split at commas and periods first for better breaking points
-            const subSentenceMatches = trimmedSentence.match(/[^.,]+[.,]+/g);
-            const subSentences = subSentenceMatches || [];
-            // Calculate consumed characters and append any trailing text
-            if (subSentenceMatches) {
-                const consumedLength = subSentenceMatches.join('').length;
-                if (consumedLength < trimmedSentence.length) {
-                    subSentences.push(trimmedSentence.substring(consumedLength));
-                }
+            // Try to split at commas and periods first for better breaking points,
+            // but don't drop any trailing text
+            const subSentenceMatches = trimmedSentence.match(/[^.,]+[.,]+/g) || [];
+            let subSentences;
+            if (subSentenceMatches.length) {
+                const consumedLength = subSentenceMatches.reduce((len, s) => len + s.length, 0);
+                const remainder = trimmedSentence.slice(consumedLength).trim();
+                subSentences = remainder ? [...subSentenceMatches, remainder] : subSentenceMatches;
             } else {
-                subSentences.push(trimmedSentence);
+                subSentences = [trimmedSentence];
             }
             let tempChunk = '';
 
@@ -73,7 +72,78 @@ const splitTextIntoSentences = (text, maxLength = 300) => {
                 if (potentialChunk.length > maxLength) {
                     if (tempChunk) {
                         chunks.push(tempChunk.trim());
-                        tempChunk = subSentence;
+                        // Check if the subSentence itself exceeds maxLength
+                        if (subSentence.length > maxLength) {
+                            // Process the oversized subSentence through word/char splitting
+                            const words = subSentence.split(' ');
+                            let wordChunk = '';
+
+                            for (const word of words) {
+                                const potentialWordChunk = wordChunk + (wordChunk ? ' ' : '') + word;
+                                if (potentialWordChunk.length > maxLength) {
+                                    if (wordChunk) {
+                                        chunks.push(wordChunk.trim());
+                                        // Check if the word itself exceeds maxLength
+                                        if (word.length > maxLength) {
+                                            // Split oversized word at character level
+                                            const chars = word.split('');
+                                            let charChunk = '';
+                                            for (const char of chars) {
+                                                if ((charChunk + char).length > maxLength) {
+                                                    if (charChunk) chunks.push(charChunk);
+                                                    charChunk = char;
+                                                } else {
+                                                    charChunk += char;
+                                                }
+                                            }
+                                            if (charChunk) chunks.push(charChunk);
+                                            wordChunk = '';
+                                        } else {
+                                            wordChunk = word;
+                                        }
+                                    } else {
+                                        // Single word is too long, split it at character level
+                                        const chars = word.split('');
+                                        let charChunk = '';
+                                        for (const char of chars) {
+                                            if ((charChunk + char).length > maxLength) {
+                                                if (charChunk) chunks.push(charChunk);
+                                                charChunk = char;
+                                            } else {
+                                                charChunk += char;
+                                            }
+                                        }
+                                        if (charChunk) chunks.push(charChunk);
+                                        wordChunk = '';
+                                    }
+                                } else {
+                                    wordChunk = potentialWordChunk;
+                                }
+                            }
+
+                            // Ensure the final wordChunk doesn't exceed maxLength
+                            if (wordChunk) {
+                                if (wordChunk.length > maxLength) {
+                                    // Split oversized final chunk at character level
+                                    const chars = wordChunk.split('');
+                                    let charChunk = '';
+                                    for (const char of chars) {
+                                        if ((charChunk + char).length > maxLength) {
+                                            if (charChunk) chunks.push(charChunk.trim());
+                                            charChunk = char;
+                                        } else {
+                                            charChunk += char;
+                                        }
+                                    }
+                                    if (charChunk) chunks.push(charChunk.trim());
+                                    tempChunk = '';
+                                } else {
+                                    tempChunk = wordChunk;
+                                }
+                            }
+                        } else {
+                            tempChunk = subSentence;
+                        }
                     } else {
                         // If even a single sub-sentence is too long, fall back to word splitting
                         const words = subSentence.split(' ');
@@ -84,7 +154,24 @@ const splitTextIntoSentences = (text, maxLength = 300) => {
                             if (potentialWordChunk.length > maxLength) {
                                 if (wordChunk) {
                                     chunks.push(wordChunk.trim());
-                                    wordChunk = word;
+                                    // Check if the word itself exceeds maxLength
+                                    if (word.length > maxLength) {
+                                        // Split oversized word at character level
+                                        const chars = word.split('');
+                                        let charChunk = '';
+                                        for (const char of chars) {
+                                            if ((charChunk + char).length > maxLength) {
+                                                if (charChunk) chunks.push(charChunk);
+                                                charChunk = char;
+                                            } else {
+                                                charChunk += char;
+                                            }
+                                        }
+                                        if (charChunk) chunks.push(charChunk);
+                                        wordChunk = '';
+                                    } else {
+                                        wordChunk = word;
+                                    }
                                 } else {
                                     // Single word is too long, split it at character level
                                     const chars = word.split('');
@@ -105,8 +192,25 @@ const splitTextIntoSentences = (text, maxLength = 300) => {
                             }
                         }
 
+                        // Ensure the final wordChunk doesn't exceed maxLength
                         if (wordChunk) {
-                            tempChunk = wordChunk;
+                            if (wordChunk.length > maxLength) {
+                                // Split oversized final chunk at character level
+                                const chars = wordChunk.split('');
+                                let charChunk = '';
+                                for (const char of chars) {
+                                    if ((charChunk + char).length > maxLength) {
+                                        if (charChunk) chunks.push(charChunk.trim());
+                                        charChunk = char;
+                                    } else {
+                                        charChunk += char;
+                                    }
+                                }
+                                if (charChunk) chunks.push(charChunk.trim());
+                                tempChunk = '';
+                            } else {
+                                tempChunk = wordChunk;
+                            }
                         }
                     }
                 } else {
