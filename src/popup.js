@@ -403,6 +403,12 @@ function playNextAudioChunk() {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     switch (message.action) {
         case 'stream_chunk':
+            // Immediately discard chunks if not streaming
+            if (!isStreaming) {
+                console.log(`[VoxLocal] Discarding late streaming chunk ${message.chunkIndex + 1}/${message.totalChunks} - streaming stopped`);
+                return;
+            }
+
             console.log(`[VoxLocal] Received streaming chunk ${message.chunkIndex + 1}/${message.totalChunks}`);
             streamChunksReceived = message.chunkIndex + 1;
             totalStreamChunks = message.totalChunks;
