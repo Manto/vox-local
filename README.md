@@ -23,12 +23,17 @@ High-quality text-to-speech for the web built upon [Kokoro.js](https://github.co
    npm install
    ```
 
-2. **Build the extension:**
+2. **Run tests (optional):**
+   ```bash
+   npm test
+   ```
+
+3. **Build the extension:**
    ```bash
    npm run build
    ```
 
-3. **Load in Chrome:**
+4. **Load in Chrome:**
    - Open `chrome://extensions/`
    - Enable "Developer mode" (top right toggle)
    - Click "Load unpacked"
@@ -126,6 +131,41 @@ build/               # Compiled extension (generated)
 2. Create a feature branch: `git checkout -b feature/your-feature`
 3. Make your changes and test thoroughly
 4. Submit a pull request
+
+## 🧪 Testing
+
+This project includes comprehensive unit tests for the text chunking logic.
+
+### Running Tests
+
+```bash
+# Run all tests
+npm test
+
+# Run tests in watch mode (for development)
+npm run test:watch
+```
+
+### Test Coverage
+
+The test suite covers:
+- **Basic sentence splitting**: Proper handling of periods, exclamation marks, and question marks
+- **Sub-sentence splitting**: Breaking long sentences at commas and periods for better streaming
+- **Word-level splitting**: Handling very long words by splitting at character boundaries
+- **maxLength enforcement**: Ensuring no chunk exceeds the specified maximum length
+- **Edge cases**: Empty strings, whitespace, consecutive punctuation, etc.
+- **Text integrity**: Verifying that joined chunks reconstruct the original text perfectly
+
+### Text Chunking Algorithm
+
+The chunking algorithm intelligently splits text for streaming TTS:
+
+1. **Sentence boundaries**: Splits at `.`, `!`, `?` while preserving trailing text
+2. **Sub-sentence boundaries**: For long sentences, splits at `,` and `.` to create natural break points
+3. **Word boundaries**: Falls back to word splitting when needed
+4. **Character boundaries**: Ultimate fallback for extremely long words
+
+This ensures smooth, natural-sounding speech synthesis with proper pacing and intonation.
 
 ## 📄 License
 

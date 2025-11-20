@@ -1,6 +1,7 @@
 // background.js - Handles requests from the UI, runs the TTS model, then sends back audio
 
 import { KokoroTTS } from 'kokoro-js';
+import { splitTextIntoSentences } from './utils/textSplitter.js';
 
 // Handle extension icon clicks - toggle floating player
 chrome.action.onClicked.addListener(async (tab) => {
@@ -36,78 +37,6 @@ class TTSSingleton {
     }
 }
 
-// Text splitting utility to break long text into sentences for streaming TTS
-const splitTextIntoSentences = (text, maxLength = 100) => {
-    // Split text into sentences while preserving punctuation
-    const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
-
-    const chunks = [];
-    let currentChunk = '';
-
-    for (const sentence of sentences) {
-        const trimmedSentence = sentence.trim();
-        if (!trimmedSentence) continue;
-
-        // Handle very long sentences that exceed maxLength by splitting them
-        if (trimmedSentence.length > maxLength) {
-            // If we have a current chunk, push it first
-            if (currentChunk.trim()) {
-                chunks.push(currentChunk.trim());
-                currentChunk = '';
-            }
-
-            // Split long sentence into words and rebuild chunks
-            const words = trimmedSentence.split(' ');
-            let tempChunk = '';
-
-            for (const word of words) {
-                const potentialChunk = tempChunk + (tempChunk ? ' ' : '') + word;
-                if (potentialChunk.length > maxLength) {
-                    if (tempChunk) {
-                        chunks.push(tempChunk);
-                        tempChunk = word;
-                    } else {
-                        // Single word is too long, split it at character level
-                        const chars = word.split('');
-                        let charChunk = '';
-                        for (const char of chars) {
-                            if ((charChunk + char).length > maxLength) {
-                                if (charChunk) chunks.push(charChunk);
-                                charChunk = char;
-                            } else {
-                                charChunk += char;
-                            }
-                        }
-                        if (charChunk) chunks.push(charChunk);
-                        tempChunk = '';
-                    }
-                } else {
-                    tempChunk = potentialChunk;
-                }
-            }
-
-            if (tempChunk) {
-                currentChunk = tempChunk;
-            }
-        } else {
-            // If adding this sentence would exceed max length, start a new chunk
-            if (currentChunk && (currentChunk + ' ' + trimmedSentence).length > maxLength) {
-                chunks.push(currentChunk.trim());
-                currentChunk = trimmedSentence;
-            } else {
-                currentChunk += (currentChunk ? ' ' : '') + trimmedSentence;
-            }
-        }
-    }
-
-    // Add the last chunk if it exists
-    if (currentChunk.trim()) {
-        chunks.push(currentChunk.trim());
-    }
-
-    // If no sentences were found or text is very short, return the original text as one chunk
-    return chunks.length > 0 ? chunks : [text];
-};
 
 // Create generic TTS function, which will be reused for the different types of events.
 const generateSpeech = async (text, voice = 'af_heart', speed = 1, dtype = 'fp32', device = 'webgpu') => {
