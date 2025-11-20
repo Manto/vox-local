@@ -13,6 +13,10 @@ let isStreaming = false;
 let streamChunksReceived = 0;
 let totalStreamChunks = 0;
 
+// Context menu TTS state
+let contextMenuAudio = null;
+let isContextMenuPlaying = false;
+
 // Listen for messages from background script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     switch (message.type) {
@@ -33,6 +37,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             sendResponse({ success: false, error: 'Unknown message type' });
     }
     return true; // Keep channel open for async response
+});
+
+// Handle context menu TTS messages from background
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    console.log('[VoxLocal] Received context menu message:', message);
+    switch (message.action) {
+        case 'context_menu_chunk':
+            handleContextMenuChunk(message);
+            break;
+
+        case 'context_menu_complete':
+            handleContextMenuComplete();
+            break;
+
+        case 'context_menu_error':
+            handleContextMenuError(message.error);
+            break;
+    }
+    return true;
 });
 
 
@@ -84,6 +107,157 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             break;
     }
 });
+
+// Handle context menu chunk playback
+function handleContextMenuChunk(chunkResult) {
+    console.log(`[VoxLocal] Received context menu chunk ${chunkResult.chunkIndex + 1}/${chunkResult.totalChunks}`);
+
+    if (isPlayerVisible) {
+        // If floating player is visible, integrate with existing streaming state
+        if (!isStreaming && !isContextMenuPlaying) {
+            // Start context menu streaming session
+            isContextMenuPlaying = true;
+            updateStatus(`Context menu: Playing chunk 1/${chunkResult.totalChunks}`, 'speaking');
+            updateButtonStates();
+        }
+
+        // Add to queue and play if nothing is currently playing
+        audioQueue.push(chunkResult);
+        if (!currentAudio) {
+            playNextContextMenuChunk();
+        }
+    } else {
+        // Floating player not visible, play directly
+        playContextMenuChunkDirectly(chunkResult);
+    }
+}
+
+// Handle context menu completion
+function handleContextMenuComplete() {
+    console.log('[VoxLocal] Context menu streaming complete');
+    isContextMenuPlaying = false;
+
+    if (isPlayerVisible && !currentAudio) {
+        updateStatus('Ready', 'ready');
+        updateButtonStates();
+    }
+}
+
+// Handle context menu error
+function handleContextMenuError(error) {
+    console.error('[VoxLocal] Context menu error:', error);
+    isContextMenuPlaying = false;
+
+    if (isPlayerVisible) {
+        updateStatus('Context menu error: ' + error, 'error');
+        updateButtonStates();
+    }
+}
+
+// Play next context menu chunk when floating player is visible
+function playNextContextMenuChunk() {
+    if (audioQueue.length === 0) {
+        if (isContextMenuPlaying) {
+            updateStatus('Context menu: waiting for next chunk...', 'speaking');
+        } else {
+            updateStatus('Ready', 'ready');
+            updateButtonStates();
+        }
+        return;
+    }
+
+    const chunk = audioQueue.shift();
+    console.log(`[VoxLocal] Playing context menu chunk ${chunk.chunkIndex + 1}/${chunk.totalChunks}`);
+
+    updateStatus(`Context menu: Playing chunk ${chunk.chunkIndex + 1}/${chunk.totalChunks}`, 'speaking');
+
+    try {
+        const audioData = atob(chunk.audio);
+        const arrayBuffer = new ArrayBuffer(audioData.length);
+        const uint8Array = new Uint8Array(arrayBuffer);
+        for (let i = 0; i < audioData.length; i++) {
+            uint8Array[i] = audioData.charCodeAt(i);
+        }
+
+        const blob = new Blob([uint8Array], { type: 'audio/wav' });
+        const audioUrl = URL.createObjectURL(blob);
+
+        currentAudio = new Audio(audioUrl);
+        currentAudio.playbackRate = chunk.speed || 1;
+
+        currentAudio.onended = () => {
+            console.log(`[VoxLocal] Context menu chunk ${chunk.chunkIndex + 1} playback completed`);
+            URL.revokeObjectURL(audioUrl);
+            currentAudio = null;
+            playNextContextMenuChunk();
+        };
+
+        currentAudio.onerror = (error) => {
+            console.error('[VoxLocal] Context menu chunk playback error:', error);
+            URL.revokeObjectURL(audioUrl);
+            currentAudio = null;
+            updateStatus('Error playing context menu chunk', 'error');
+        };
+
+        console.log('[VoxLocal] Starting context menu chunk audio playback...');
+        currentAudio.play().catch((error) => {
+            console.error('[VoxLocal] Context menu chunk play failed:', error.message);
+            URL.revokeObjectURL(audioUrl);
+            currentAudio = null;
+            updateStatus('Error: ' + error.message, 'error');
+        });
+
+    } catch (error) {
+        console.error('[VoxLocal] Error creating context menu chunk audio:', error);
+        updateStatus('Error: ' + error.message, 'error');
+    }
+}
+
+// Play context menu chunk directly when floating player is not visible
+function playContextMenuChunkDirectly(chunkResult) {
+    console.log(`[VoxLocal] Playing context menu chunk ${chunkResult.chunkIndex + 1}/${chunkResult.totalChunks} directly`);
+
+    try {
+        const audioData = atob(chunkResult.audio);
+        const arrayBuffer = new ArrayBuffer(audioData.length);
+        const uint8Array = new Uint8Array(arrayBuffer);
+        for (let i = 0; i < audioData.length; i++) {
+            uint8Array[i] = audioData.charCodeAt(i);
+        }
+
+        const blob = new Blob([uint8Array], { type: 'audio/wav' });
+        const audioUrl = URL.createObjectURL(blob);
+
+        if (contextMenuAudio) {
+            contextMenuAudio.pause();
+            contextMenuAudio = null;
+        }
+
+        contextMenuAudio = new Audio(audioUrl);
+        contextMenuAudio.playbackRate = chunkResult.speed || 1;
+
+        contextMenuAudio.onended = () => {
+            console.log(`[VoxLocal] Direct context menu chunk ${chunkResult.chunkIndex + 1} playback completed`);
+            URL.revokeObjectURL(audioUrl);
+            contextMenuAudio = null;
+        };
+
+        contextMenuAudio.onerror = (error) => {
+            console.error('[VoxLocal] Direct context menu chunk playback error:', error);
+            URL.revokeObjectURL(audioUrl);
+            contextMenuAudio = null;
+        };
+
+        contextMenuAudio.play().catch((error) => {
+            console.error('[VoxLocal] Direct context menu chunk play failed:', error.message);
+            URL.revokeObjectURL(audioUrl);
+            contextMenuAudio = null;
+        });
+
+    } catch (error) {
+        console.error('[VoxLocal] Error creating direct context menu chunk audio:', error);
+    }
+}
 
 // Toggle floating player visibility
 function toggleFloatingPlayer() {
@@ -603,12 +777,20 @@ function stopPlayback() {
         currentAudio = null;
     }
 
+    // Stop context menu audio if playing
+    if (contextMenuAudio) {
+        console.log('[VoxLocal] Stopping context menu audio playback');
+        contextMenuAudio.pause();
+        contextMenuAudio = null;
+        isContextMenuPlaying = false;
+    }
+
     // Cancel streaming if active
     if (isStreaming) {
         console.log('[VoxLocal] Cancelling active streaming request');
         cancelStreamingTTS();
         resetStreamingState();
-    } else {
+    } else if (!isContextMenuPlaying) {
         resetButtons();
     }
 
@@ -709,13 +891,19 @@ function resetStreamingState() {
     isStreaming = false;
     streamChunksReceived = 0;
     totalStreamChunks = 0;
+    // Also reset context menu state
+    isContextMenuPlaying = false;
+    if (contextMenuAudio) {
+        contextMenuAudio.pause();
+        contextMenuAudio = null;
+    }
     updateButtonStates();
 }
 
-// Update button states based on streaming status
+// Update button states based on streaming and context menu status
 function updateButtonStates() {
-    if (isStreaming) {
-        // During streaming, disable all speak buttons, enable stop
+    if (isStreaming || isContextMenuPlaying) {
+        // During streaming or context menu playback, disable all speak buttons, enable stop
         document.getElementById('voxlocal-speak-btn').disabled = true;
         document.getElementById('voxlocal-speak-selection').disabled = true;
         document.getElementById('voxlocal-speak-page').disabled = true;

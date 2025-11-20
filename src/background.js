@@ -276,42 +276,79 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
     console.log(`[VoxLocal] Context menu activated for selected text (${info.selectionText.length} characters)`);
 
-    // Generate speech for the selected text
-    let result = await generateSpeech(info.selectionText);
+    // Use streaming TTS to process text in chunks
+    let chunkIndex = 0;
+    let totalChunks = 0;
 
-    // Inject a script to play the audio
-    console.log(`[VoxLocal] Injecting audio playback script into tab ${tab.id}`);
-    chrome.scripting.executeScript({
-        target: { tabId: tab.id },    // Run in the tab that the user clicked in
-        args: [result],               // The arguments to pass to the function
-        function: (result) => {       // The function to run
-            // NOTE: This function is run in the context of the web page, meaning that `document` is available.
-            try {
-                console.log('[VoxLocal] Starting audio playback from context menu...');
-                // Convert base64 back to audio and play it
-                const audioData = atob(result.audio);
-                const arrayBuffer = new ArrayBuffer(audioData.length);
-                const uint8Array = new Uint8Array(arrayBuffer);
-                for (let i = 0; i < audioData.length; i++) {
-                    uint8Array[i] = audioData.charCodeAt(i);
-                }
+    try {
+        await generateStreamingSpeech(
+            info.selectionText,
+            'af_heart', // Default voice for context menu
+            1.0, // Default speed
+            'fp32', // Default dtype
+            'webgpu', // Default device
+            (chunkResult) => {
+                chunkIndex = chunkResult.chunkIndex;
+                totalChunks = chunkResult.totalChunks;
 
-                const blob = new Blob([uint8Array], { type: 'audio/wav' });
-                const audioUrl = URL.createObjectURL(blob);
-                const audio = new Audio(audioUrl);
-                audio.play().catch(console.error);
+                // Send chunk to content script for playback and state management
+                chrome.tabs.sendMessage(tab.id, {
+                    action: 'context_menu_chunk',
+                    ...chunkResult
+                }).catch(error => {
+                    console.log('[VoxLocal] Content script not ready for chunk playback, injecting direct playback');
+                    // Fallback to direct injection if content script isn't ready
+                    chrome.scripting.executeScript({
+                        target: { tabId: tab.id },
+                        args: [chunkResult],
+                        function: (chunkResult) => {
+                            try {
+                                console.log(`[VoxLocal] Playing context menu chunk ${chunkResult.chunkIndex + 1}/${chunkResult.totalChunks}`);
+                                const audioData = atob(chunkResult.audio);
+                                const arrayBuffer = new ArrayBuffer(audioData.length);
+                                const uint8Array = new Uint8Array(arrayBuffer);
+                                for (let i = 0; i < audioData.length; i++) {
+                                    uint8Array[i] = audioData.charCodeAt(i);
+                                }
 
-                // Clean up the URL after playing
-                audio.onended = () => {
-                    console.log('[VoxLocal] Context menu audio playback completed');
-                    URL.revokeObjectURL(audioUrl);
-                };
-            } catch (error) {
-                console.error('[VoxLocal] Error playing context menu audio:', error);
+                                const blob = new Blob([uint8Array], { type: 'audio/wav' });
+                                const audioUrl = URL.createObjectURL(blob);
+                                const audio = new Audio(audioUrl);
+                                audio.playbackRate = chunkResult.speed || 1;
+
+                                audio.onended = () => {
+                                    console.log(`[VoxLocal] Context menu chunk ${chunkResult.chunkIndex + 1} playback completed`);
+                                    URL.revokeObjectURL(audioUrl);
+                                };
+
+                                audio.play().catch(console.error);
+                            } catch (error) {
+                                console.error('[VoxLocal] Error playing context menu chunk:', error);
+                            }
+                        }
+                    });
+                });
             }
-        },
-    });
-    console.log('[VoxLocal] Context menu speech generation completed');
+        );
+
+        // Send completion message
+        chrome.tabs.sendMessage(tab.id, {
+            action: 'context_menu_complete'
+        }).catch(() => {
+            // Ignore if content script isn't ready
+        });
+
+    } catch (error) {
+        console.error('[VoxLocal] Context menu streaming TTS error:', error);
+        chrome.tabs.sendMessage(tab.id, {
+            action: 'context_menu_error',
+            error: error.message
+        }).catch(() => {
+            // Ignore if content script isn't ready
+        });
+    }
+
+    console.log('[VoxLocal] Context menu streaming speech generation completed');
 });
 //////////////////////////////////////////////////////////////
 
