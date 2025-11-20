@@ -2,6 +2,18 @@
 
 import { KokoroTTS } from 'kokoro-js';
 
+// Handle extension icon clicks - toggle floating player
+chrome.action.onClicked.addListener(async (tab) => {
+    if (tab.id === chrome.tabs.TAB_ID_NONE) return;
+
+    try {
+        // Send message to content script to toggle the floating player
+        await chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE_PLAYER' });
+    } catch (error) {
+        console.log('[VoxLocal] Content script not ready, will be initialized on next page load');
+    }
+});
+
 class TTSSingleton {
     static model_id = 'onnx-community/Kokoro-82M-v1.0-ONNX';
     static instances = new Map(); // Store instances by dtype-device combination

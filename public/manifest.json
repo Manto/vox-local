@@ -32,8 +32,7 @@
       "24": "icons/icon.png",
       "32": "icons/icon.png"
     },
-    "default_title": "VoxLocal - Text to Speech",
-    "default_popup": "popup.html"
+    "default_title": "VoxLocal - Text to Speech"
   },
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'"

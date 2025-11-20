@@ -15,7 +15,6 @@ const config = {
             import: './src/background.js',
             chunkLoading: `import-scripts`,
         },
-        popup: './src/popup.js',
         content: './src/content.js',
     },
     output: {
@@ -23,20 +22,11 @@ const config = {
         filename: '[name].js',
     },
     plugins: [
-        new HtmlWebpackPlugin({
-            template: './src/popup.html',
-            filename: 'popup.html',
-            chunks: ['popup'], // Only inject popup.js into popup.html
-        }),
         new CopyPlugin({
             patterns: [
                 {
                     from: "public",
                     to: "." // Copies to build folder
-                },
-                {
-                    from: "src/popup.css",
-                    to: "popup.css"
                 }
             ],
         })
