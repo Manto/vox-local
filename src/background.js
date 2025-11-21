@@ -3,6 +3,12 @@
 import { KokoroTTS } from 'kokoro-js';
 import { splitTextIntoSentences } from './utils/textSplitter.js';
 
+// Configure ONNX Runtime to suppress verbose warnings
+// This prevents the "Some nodes were not assigned to the preferred execution providers" warning
+if (typeof globalThis !== 'undefined' && globalThis.ort) {
+    globalThis.ort.env.logLevel = 'error'; // Only show errors, suppress warnings
+}
+
 // Efficient Uint8Array to base64 conversion
 function uint8ArrayToBase64(uint8Array) {
     // Use chunked approach to avoid call stack limits and improve performance
@@ -38,11 +44,29 @@ class TTSSingleton {
 
         if (!this.instances.has(key)) {
             console.log(`[VoxLocal] Creating new TTS instance for ${key} (dtype: ${dtype}, device: ${device})`);
-            this.instances.set(key, await KokoroTTS.from_pretrained(this.model_id, {
+
+            // Configure ONNX Runtime options to suppress warnings and optimize execution
+            const ortOptions = {
                 dtype: dtype,
                 device: device,
                 progress_callback: progress_callback
-            }));
+            };
+
+            // Add execution provider configuration for WebGPU to reduce warnings
+            if (device === 'webgpu') {
+                ortOptions.executionProviders = [
+                    {
+                        name: 'webgpu',
+                        deviceType: 'gpu'
+                    },
+                    {
+                        name: 'cpu',
+                        deviceType: 'cpu'
+                    }
+                ];
+            }
+
+            this.instances.set(key, await KokoroTTS.from_pretrained(this.model_id, ortOptions));
         } else {
             console.log(`[VoxLocal] Reusing existing TTS instance for ${key} (dtype: ${dtype}, device: ${device})`);
         }
