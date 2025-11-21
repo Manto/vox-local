@@ -5,8 +5,18 @@ import { splitTextIntoSentences } from './utils/textSplitter.js';
 
 // Configure ONNX Runtime to suppress verbose warnings
 // This prevents the "Some nodes were not assigned to the preferred execution providers" warning
-if (typeof globalThis !== 'undefined' && globalThis.ort) {
-    globalThis.ort.env.logLevel = 'error'; // Only show errors, suppress warnings
+if (typeof globalThis !== 'undefined') {
+    // Configure ONNX Runtime environment before any models are loaded
+    if (globalThis.ort) {
+        globalThis.ort.env.logLevel = 'error'; // Only show errors, suppress warnings
+        globalThis.ort.env.wasm.wasmPaths = ''; // Prevent additional WASM loading messages
+    }
+
+    // Set environment variables to suppress ONNX warnings
+    if (typeof process !== 'undefined' && process.env) {
+        process.env.ONNX_RUNTIME_LOG_LEVEL = '2'; // 0=verbose, 1=info, 2=warning, 3=error, 4=fatal
+        process.env.ONNX_RUNTIME_DISABLE_TELEMETRY = '1';
+    }
 }
 
 // Efficient Uint8Array to base64 conversion
@@ -58,12 +68,18 @@ class TTSSingleton {
                     {
                         name: 'webgpu',
                         deviceType: 'gpu'
-                    },
-                    {
-                        name: 'cpu',
-                        deviceType: 'cpu'
                     }
                 ];
+                // Explicitly disable CPU fallback to reduce node assignment warnings
+                ortOptions.disableCpuFallback = true;
+                // Configure session options to suppress warnings
+                ortOptions.sessionOptions = {
+                    logLevel: 'error',
+                    logId: 'VoxLocal-Kokoro',
+                    enableProfiling: false,
+                    enableMemPattern: true,
+                    executionMode: 'sequential'
+                };
             }
 
             this.instances.set(key, await KokoroTTS.from_pretrained(this.model_id, ortOptions));

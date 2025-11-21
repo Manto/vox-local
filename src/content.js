@@ -437,24 +437,11 @@ function createFloatingPlayer() {
             <div id="voxlocal-model-status" class="model-status">Model not loaded</div>
         </div>
         <div class="voxlocal-controls">
-            <button id="voxlocal-speak-selection" class="btn btn-primary" title="Speak selected text">
-                <span class="icon">📖</span> Speak Selection
+            <button id="voxlocal-play-stop-btn" class="voxlocal-btn voxlocal-btn-primary" title="Play selection or page">
+                <span class="icon">▶️</span> Play
             </button>
-            <button id="voxlocal-speak-page" class="btn btn-primary" title="Speak entire page">
-                <span class="icon">📄</span> Speak Page
-            </button>
-            <button id="voxlocal-speak-btn" class="btn btn-primary" title="Speak entered text">
-                <span class="icon">🔊</span> Speak Text
-            </button>
-            <button id="voxlocal-stop-btn" class="btn btn-danger" disabled title="Stop speaking">
-                <span class="icon">⏹️</span> Stop
-            </button>
-        </div>
-        <div class="voxlocal-input-section">
-            <textarea id="voxlocal-text" placeholder="Enter text to speak..." rows="3"></textarea>
         </div>
         <div class="voxlocal-settings">
-            <h3>Voice Settings</h3>
             <div class="setting-group">
                 <label for="voxlocal-voice-select">Voice:</label>
                 <select id="voxlocal-voice-select">
@@ -597,7 +584,7 @@ function injectPlayerStyles() {
             margin: 0 16px 20px 16px;
         }
 
-        .btn {
+        .voxlocal-btn {
             padding: 10px 16px;
             border: none;
             border-radius: 6px;
@@ -611,11 +598,11 @@ function injectPlayerStyles() {
             gap: 6px;
         }
 
-        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
-        .btn-primary { background-color: #007bff; color: white; }
-        .btn-primary:hover:not(:disabled) { background-color: #0056b3; }
-        .btn-danger { background-color: #dc3545; color: white; }
-        .btn-danger:hover:not(:disabled) { background-color: #c82333; }
+        .voxlocal-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .voxlocal-btn-primary { background-color: #007bff; color: white; }
+        .voxlocal-btn-primary:hover:not(:disabled) { background-color: #0056b3; }
+        .voxlocal-btn-danger { background-color: #dc3545; color: white; }
+        .voxlocal-btn-danger:hover:not(:disabled) { background-color: #c82333; }
 
         .icon { font-size: 16px; }
 
@@ -697,11 +684,8 @@ function setupEventListeners() {
         speedValue.textContent = `${event.target.value}x`;
     });
 
-    // Buttons
-    document.getElementById('voxlocal-speak-selection').addEventListener('click', () => speakFromPage('selection'));
-    document.getElementById('voxlocal-speak-page').addEventListener('click', () => speakFromPage('page'));
-    document.getElementById('voxlocal-speak-btn').addEventListener('click', speakText);
-    document.getElementById('voxlocal-stop-btn').addEventListener('click', stopPlayback);
+    // Play/Stop button
+    document.getElementById('voxlocal-play-stop-btn').addEventListener('click', togglePlayStop);
 
     // Settings change listeners
     const deviceSelect = document.getElementById('voxlocal-device');
@@ -810,11 +794,8 @@ function sendStreamingTTS(text, voice, speed) {
 
 // Function to send text to TTS for speech generation
 function sendToTTS(text, voice, speed, loadingMessage = 'Generating speech...') {
-    // Disable buttons and show loading
-    document.getElementById('voxlocal-speak-btn').disabled = true;
-    document.getElementById('voxlocal-stop-btn').disabled = false;
-    document.getElementById('voxlocal-speak-selection').disabled = true;
-    document.getElementById('voxlocal-speak-page').disabled = true;
+    // Update button to stop mode
+    updateButtonStates();
 
     updateStatus(loadingMessage, 'loading');
 
@@ -885,22 +866,24 @@ async function speakFromPage(type) {
     }
 }
 
-// Speak text from textarea
-function speakText() {
-    const text = document.getElementById('voxlocal-text').value.trim();
-    if (!text) {
-        console.log('[VoxLocal] Speak button clicked but no text entered');
-        updateStatus('Please enter some text to speak', 'error');
+// Toggle between play and stop functionality
+function togglePlayStop() {
+    // If currently playing (streaming or context menu), stop
+    if (isStreaming || isContextMenuPlaying || currentAudio) {
+        console.log('[VoxLocal] Play/Stop button clicked - stopping playback');
+        stopPlayback();
         return;
     }
 
-    const voice = document.getElementById('voxlocal-voice-select').value;
-    const speed = parseFloat(document.getElementById('voxlocal-speed-slider').value);
-
-    console.log(`[VoxLocal] Speak button clicked - text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}", voice: ${voice}, speed: ${speed}x`);
-
-    // Send to streaming TTS
-    sendStreamingTTS(text, voice, speed);
+    // If not playing, check for selection or play page
+    const selectedText = getSelectedText();
+    if (selectedText && selectedText.trim() !== '') {
+        console.log('[VoxLocal] Play/Stop button clicked - playing selection');
+        speakFromPage('selection');
+    } else {
+        console.log('[VoxLocal] Play/Stop button clicked - playing page');
+        speakFromPage('page');
+    }
 }
 
 // Stop playback
@@ -954,8 +937,7 @@ function playAudio(response) {
         currentAudio.onloadedmetadata = () => {
             console.log(`[VoxLocal] Audio loaded - duration: ${currentAudio.duration.toFixed(2)}s`);
             updateStatus('Speaking', 'speaking');
-            document.getElementById('voxlocal-speak-btn').disabled = true;
-            document.getElementById('voxlocal-stop-btn').disabled = false;
+            updateButtonStates();
         };
 
         currentAudio.onended = () => {
@@ -992,10 +974,11 @@ function playAudio(response) {
 
 // Reset button states
 function resetButtons() {
-    document.getElementById('voxlocal-speak-btn').disabled = false;
-    document.getElementById('voxlocal-stop-btn').disabled = true;
-    document.getElementById('voxlocal-speak-selection').disabled = false;
-    document.getElementById('voxlocal-speak-page').disabled = false;
+    const playStopBtn = document.getElementById('voxlocal-play-stop-btn');
+    playStopBtn.disabled = false;
+    playStopBtn.innerHTML = '<span class="icon">▶️</span> Play';
+    playStopBtn.title = 'Play selection or page';
+    playStopBtn.className = 'voxlocal-btn voxlocal-btn-primary';
 }
 
 // Update status display
@@ -1041,14 +1024,15 @@ function resetStreamingState() {
 
 // Update button states based on streaming and context menu status
 function updateButtonStates() {
+    const playStopBtn = document.getElementById('voxlocal-play-stop-btn');
     if (isStreaming || isContextMenuPlaying) {
-        // During streaming or context menu playback, disable all speak buttons, enable stop
-        document.getElementById('voxlocal-speak-btn').disabled = true;
-        document.getElementById('voxlocal-speak-selection').disabled = true;
-        document.getElementById('voxlocal-speak-page').disabled = true;
-        document.getElementById('voxlocal-stop-btn').disabled = false;
+        // During streaming or context menu playback, change to stop mode
+        playStopBtn.disabled = false;
+        playStopBtn.innerHTML = '<span class="icon">⏹️</span> Stop';
+        playStopBtn.title = 'Stop speaking';
+        playStopBtn.className = 'voxlocal-btn voxlocal-btn-danger';
     } else {
-        // Normal state
+        // Normal state - play mode
         resetButtons();
     }
 }
