@@ -492,7 +492,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     message.speed,
                     message.dtype,
                     message.device,
-                    (chunkResult) => {
+                    async (chunkResult) => {
                         // Queue chunk for sending to content script only if streaming hasn't been cancelled
                         if (activeStreamingRequest?.id === requestId && !activeStreamingRequest.cancelled) {
                             console.log(`[VoxLocal] Queueing chunk ${chunkResult.chunkIndex + 1}/${chunkResult.totalChunks} for content script`);
