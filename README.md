@@ -62,10 +62,7 @@ High-quality text-to-speech for the web built upon [Kokoro.js](https://github.co
 ```text
 src/
 ├── background.js    # Service worker - handles TTS model loading and audio generation
-├── popup.html       # Extension popup UI
-├── popup.css        # Popup styling
-├── popup.js         # Popup interaction logic
-└── content.js       # Content script for webpage integration
+└── content.js       # Content script for webpage integration and UI
 
 public/
 ├── manifest.json    # Extension manifest
@@ -98,7 +95,7 @@ build/               # Compiled extension (generated)
 ### Key Files
 
 - **`background.js`**: Loads the Kokoro TTS model and handles audio generation requests
-- **`popup.js`**: Manages the extension popup UI and audio playback
+- **`content.js`**: Manages the floating player UI and streaming audio playback
 - **`manifest.json`**: Defines extension permissions and structure
 
 ## 🎙️ Available Voices
