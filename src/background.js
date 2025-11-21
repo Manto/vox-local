@@ -164,6 +164,7 @@ const generateStreamingSpeech = async (text, voice = 'af_heart', speed = 1, dtyp
             const base64Audio = uint8ArrayToBase64(uint8Array);
 
             const chunkResult = {
+                action: 'stream_chunk',
                 audio: base64Audio,
                 sampleRate: audio.sample_rate,
                 voice: voice,
