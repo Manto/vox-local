@@ -269,8 +269,10 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
             );
 
             // Send single audio result to content script
+            const sessionId = Date.now() + Math.random(); // Generate unique session ID
             chrome.tabs.sendMessage(tab.id, {
                 action: 'context_menu_single',
+                sessionId: sessionId,
                 audio: result.audio,
                 sampleRate: result.sampleRate,
                 voice: result.voice,
@@ -312,6 +314,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         } else {
             // Multiple chunks - use streaming TTS
             console.log(`[VoxLocal] Multiple chunks (${textChunks.length}) detected, using streaming TTS`);
+            const sessionId = Date.now() + Math.random(); // Generate unique session ID
             await generateStreamingSpeech(
                 info.selectionText,
                 'af_heart', // Default voice for context menu
@@ -322,6 +325,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
                     // Send chunk to content script for playback and state management
                     chrome.tabs.sendMessage(tab.id, {
                         action: 'context_menu_chunk',
+                        sessionId: sessionId,
                         ...chunkResult
                     }).catch(error => {
                         console.log('[VoxLocal] Content script not ready for chunk playback, injecting direct playback');
@@ -389,7 +393,7 @@ let requestIdCounter = 0;
 let pendingChunks = new Map(); // Queue chunks for each request ID when content script is unavailable
 
 // Function to send queued chunks/messages to content script
-function sendQueuedChunks(requestId, tabId) {
+async function sendQueuedChunks(requestId, tabId) {
     if (!pendingChunks.has(requestId)) {
         return;
     }
@@ -404,15 +408,11 @@ function sendQueuedChunks(requestId, tabId) {
     // Send all pending messages
     for (const message of messages) {
         try {
-            chrome.tabs.sendMessage(tabId, message).catch(error => {
-                console.log(`[VoxLocal] Content script unavailable for message ${message.action}, will retry later`);
-                // Don't remove from queue if sending failed
-                return;
-            });
+            await chrome.tabs.sendMessage(tabId, message);
             console.log(`[VoxLocal] Successfully sent queued message ${message.action}`);
         } catch (sendError) {
             console.log(`[VoxLocal] Content script unavailable for message ${message.action}, will retry later`);
-            // Don't remove from queue if sending failed
+            // Don't remove from queue if sending failed - stop processing and return
             return;
         }
     }
@@ -456,8 +456,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             return true;
         }
 
-        sendQueuedChunks(requestId, tabId);
-        sendResponse({ success: true });
+        (async () => {
+            await sendQueuedChunks(requestId, tabId);
+            sendResponse({ success: true });
+        })();
         return true;
     }
 
@@ -501,7 +503,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
                             // Try to send immediately, but don't fail if content script is unavailable
                             if (tabId) {
-                                sendQueuedChunks(requestId, tabId);
+                                await sendQueuedChunks(requestId, tabId);
                             }
                         } else {
                             console.log(`[VoxLocal] Skipping chunk ${chunkResult.chunkIndex + 1}/${chunkResult.totalChunks} - streaming cancelled`);
@@ -521,7 +523,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
                     // Try to send immediately
                     if (tabId) {
-                        sendQueuedChunks(requestId, tabId);
+                        await sendQueuedChunks(requestId, tabId);
                     }
                 }
 
@@ -544,7 +546,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
                     // Try to send immediately
                     if (tabId) {
-                        sendQueuedChunks(requestId, tabId);
+                        await sendQueuedChunks(requestId, tabId);
                     }
                 }
                 activeStreamingRequest = null;

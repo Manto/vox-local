@@ -14,10 +14,38 @@ let streamChunksReceived = 0;
 let totalStreamChunks = 0;
 let nextExpectedChunkIndex = 0; // Track the next chunk index we should play
 
+// Helper function to create Audio from base64 data
+function createAudioFromBase64(base64, { speed = 1 } = {}) {
+    try {
+        // Convert base64 back to binary data
+        const audioData = atob(base64);
+        const arrayBuffer = new ArrayBuffer(audioData.length);
+        const uint8Array = new Uint8Array(arrayBuffer);
+        for (let i = 0; i < audioData.length; i++) {
+            uint8Array[i] = audioData.charCodeAt(i);
+        }
+
+        // Create blob and object URL
+        const blob = new Blob([uint8Array], { type: 'audio/wav' });
+        const audioUrl = URL.createObjectURL(blob);
+
+        // Create and configure audio element
+        const audio = new Audio(audioUrl);
+        audio.playbackRate = speed;
+
+        return { audio, audioUrl };
+    } catch (error) {
+        console.error('[VoxLocal] Error creating audio from base64:', error);
+        throw error;
+    }
+}
+
 // Context menu TTS state
 let contextMenuAudio = null;
 let isContextMenuPlaying = false;
 let isContextMenuGenerationComplete = false;
+let contextMenuSessionId = 0; // Increment to cancel previous sessions
+let isContextMenuCancelled = false; // Flag to prevent new chunks from starting playback
 
 // Audio queue for context menu playback
 let audioQueue = [];
@@ -128,8 +156,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // Handle context menu single audio playback
 function handleContextMenuSingle(audioResult) {
-    console.log('[VoxLocal] 🔄 RECEIVED context menu SINGLE audio from background');
+    console.log(`[VoxLocal] 🔄 RECEIVED context menu SINGLE audio from background (session: ${audioResult.sessionId})`);
     console.log(`[VoxLocal] 📝 Context menu single text: "${audioResult.text ? audioResult.text.substring(0, 100) + (audioResult.text.length > 100 ? '...' : '') : 'N/A'}"`);
+
+    // Check if this audio belongs to the current session and we're not cancelled
+    if (audioResult.sessionId !== contextMenuSessionId || isContextMenuCancelled) {
+        console.log(`[VoxLocal] 🚫 Ignoring context menu single audio - session mismatch (${audioResult.sessionId} vs ${contextMenuSessionId}) or cancelled (${isContextMenuCancelled})`);
+        return;
+    }
 
     // Reset generation complete flag for single audio (generation is already complete)
     isContextMenuGenerationComplete = true;
@@ -140,7 +174,9 @@ function handleContextMenuSingle(audioResult) {
         if (!isStreaming && !isContextMenuPlaying) {
             // Start context menu playback session
             console.log(`[VoxLocal] 🎯 Starting context menu single audio session`);
+            contextMenuSessionId = audioResult.sessionId; // Set current session ID
             isContextMenuPlaying = true;
+            isContextMenuCancelled = false; // Reset cancelled flag for new session
             updateStatus('Context menu: Speaking', 'speaking');
             updateButtonStates();
         }
@@ -161,8 +197,14 @@ function handleContextMenuSingle(audioResult) {
 
 // Handle context menu chunk playback
 function handleContextMenuChunk(chunkResult) {
-    console.log(`[VoxLocal] 🔄 RECEIVED context menu chunk ${chunkResult.chunkIndex + 1}/${chunkResult.totalChunks} from background`);
+    console.log(`[VoxLocal] 🔄 RECEIVED context menu chunk ${chunkResult.chunkIndex + 1}/${chunkResult.totalChunks} from background (session: ${chunkResult.sessionId})`);
     console.log(`[VoxLocal] 📝 Context menu chunk text: "${chunkResult.text ? chunkResult.text.substring(0, 100) + (chunkResult.text.length > 100 ? '...' : '') : 'N/A'}"`);
+
+    // Check if this chunk belongs to the current session and we're not cancelled
+    if (chunkResult.sessionId !== contextMenuSessionId || isContextMenuCancelled) {
+        console.log(`[VoxLocal] 🚫 Ignoring context menu chunk - session mismatch (${chunkResult.sessionId} vs ${contextMenuSessionId}) or cancelled (${isContextMenuCancelled})`);
+        return;
+    }
 
     if (isPlayerVisible) {
         console.log(`[VoxLocal] 🖥️ Floating player visible, integrating with streaming state`);
@@ -170,8 +212,10 @@ function handleContextMenuChunk(chunkResult) {
         if (!isStreaming && !isContextMenuPlaying) {
             // Start context menu streaming session
             console.log(`[VoxLocal] 🎯 Starting context menu streaming session`);
+            contextMenuSessionId = chunkResult.sessionId; // Set current session ID
             isContextMenuPlaying = true;
             isContextMenuGenerationComplete = false; // Reset generation complete flag
+            isContextMenuCancelled = false; // Reset cancelled flag for new session
             updateStatus(`Context menu: Playing chunk 1/${chunkResult.totalChunks}`, 'speaking');
             updateButtonStates();
         }
@@ -248,18 +292,8 @@ function playNextContextMenuChunk() {
     updateStatus(displayText, 'speaking');
 
     try {
-        const audioData = atob(audioItem.audio);
-        const arrayBuffer = new ArrayBuffer(audioData.length);
-        const uint8Array = new Uint8Array(arrayBuffer);
-        for (let i = 0; i < audioData.length; i++) {
-            uint8Array[i] = audioData.charCodeAt(i);
-        }
-
-        const blob = new Blob([uint8Array], { type: 'audio/wav' });
-        const audioUrl = URL.createObjectURL(blob);
-
-        currentAudio = new Audio(audioUrl);
-        currentAudio.playbackRate = audioItem.speed || 1;
+        const { audio, audioUrl } = createAudioFromBase64(audioItem.audio, { speed: audioItem.speed || 1 });
+        currentAudio = audio;
 
         currentAudio.onended = () => {
             console.log(`[VoxLocal] Context menu ${isChunk ? 'chunk' : 'single audio'} playback completed`);
@@ -306,23 +340,13 @@ function playContextMenuSingleDirectly(audioResult) {
     console.log('[VoxLocal] Playing context menu single audio directly');
 
     try {
-        const audioData = atob(audioResult.audio);
-        const arrayBuffer = new ArrayBuffer(audioData.length);
-        const uint8Array = new Uint8Array(arrayBuffer);
-        for (let i = 0; i < audioData.length; i++) {
-            uint8Array[i] = audioData.charCodeAt(i);
-        }
-
-        const blob = new Blob([uint8Array], { type: 'audio/wav' });
-        const audioUrl = URL.createObjectURL(blob);
-
         if (contextMenuAudio) {
             contextMenuAudio.pause();
             contextMenuAudio = null;
         }
 
-        contextMenuAudio = new Audio(audioUrl);
-        contextMenuAudio.playbackRate = audioResult.speed || 1;
+        const { audio, audioUrl } = createAudioFromBase64(audioResult.audio, { speed: audioResult.speed || 1 });
+        contextMenuAudio = audio;
 
         contextMenuAudio.onended = () => {
             console.log('[VoxLocal] Direct context menu single audio playback completed');
@@ -352,23 +376,13 @@ function playContextMenuChunkDirectly(chunkResult) {
     console.log(`[VoxLocal] Playing context menu chunk ${chunkResult.chunkIndex + 1}/${chunkResult.totalChunks} directly`);
 
     try {
-        const audioData = atob(chunkResult.audio);
-        const arrayBuffer = new ArrayBuffer(audioData.length);
-        const uint8Array = new Uint8Array(arrayBuffer);
-        for (let i = 0; i < audioData.length; i++) {
-            uint8Array[i] = audioData.charCodeAt(i);
-        }
-
-        const blob = new Blob([uint8Array], { type: 'audio/wav' });
-        const audioUrl = URL.createObjectURL(blob);
-
         if (contextMenuAudio) {
             contextMenuAudio.pause();
             contextMenuAudio = null;
         }
 
-        contextMenuAudio = new Audio(audioUrl);
-        contextMenuAudio.playbackRate = chunkResult.speed || 1;
+        const { audio, audioUrl } = createAudioFromBase64(chunkResult.audio, { speed: chunkResult.speed || 1 });
+        contextMenuAudio = audio;
 
         contextMenuAudio.onended = () => {
             console.log(`[VoxLocal] Direct context menu chunk ${chunkResult.chunkIndex + 1} playback completed`);
@@ -792,44 +806,6 @@ function sendStreamingTTS(text, voice, speed) {
     });
 }
 
-// Function to send text to TTS for speech generation
-function sendToTTS(text, voice, speed, loadingMessage = 'Generating speech...') {
-    // Update button to stop mode
-    updateButtonStates();
-
-    updateStatus(loadingMessage, 'loading');
-
-    // Send message to background script
-    const message = {
-        action: 'speak',
-        text: text,
-        voice: voice,
-        speed: speed,
-        dtype: document.getElementById('voxlocal-dtype').value,
-        device: document.getElementById('voxlocal-device').value
-    };
-
-    console.log(`[VoxLocal] Sending speak message to background script - text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}", voice: ${voice}, speed: ${speed}x, dtype: ${message.dtype}, device: ${message.device}`);
-
-    chrome.runtime.sendMessage(message, (response) => {
-        if (chrome.runtime.lastError) {
-            console.error('[VoxLocal] Runtime error:', chrome.runtime.lastError);
-            updateStatus('Error: ' + chrome.runtime.lastError.message, 'error');
-            resetButtons();
-            return;
-        }
-
-        if (response && response.audio) {
-            console.log(`[VoxLocal] Received audio response (${(response.audio.length / 1024).toFixed(2)} KB, ${response.sampleRate}Hz, voice: ${response.voice})`);
-            playAudio(response);
-        } else {
-            console.error('[VoxLocal] No audio received in response');
-            updateStatus('Error: No audio received', 'error');
-            resetButtons();
-        }
-    });
-}
-
 // Function to speak text from page (selection or full page)
 async function speakFromPage(type) {
     const voice = document.getElementById('voxlocal-voice-select').value;
@@ -895,20 +871,28 @@ function stopPlayback() {
         currentAudio = null;
     }
 
-    // Stop context menu audio if playing
+    // Stop context menu audio if playing and clear queued chunks
     if (contextMenuAudio) {
         console.log('[VoxLocal] Stopping context menu audio playback');
         contextMenuAudio.pause();
         contextMenuAudio = null;
-        isContextMenuPlaying = false;
     }
+
+    // Clear audio queue and reset context menu state
+    audioQueue = [];
+    isContextMenuPlaying = false;
+    isContextMenuGenerationComplete = false;
+    isContextMenuCancelled = true; // Prevent new chunks from starting
+    contextMenuSessionId++; // Increment to invalidate any incoming chunks from previous session
+
+    console.log(`[VoxLocal] Cleared audio queue and incremented session ID to ${contextMenuSessionId}`);
 
     // Cancel streaming if active
     if (isStreaming) {
         console.log('[VoxLocal] Cancelling active streaming request');
         cancelStreamingTTS();
         resetStreamingState();
-    } else if (!isContextMenuPlaying) {
+    } else {
         resetButtons();
     }
 
@@ -919,19 +903,8 @@ function stopPlayback() {
 function playAudio(response) {
     try {
         console.log('[VoxLocal] Converting base64 audio to playable format...');
-        // Convert base64 back to audio
-        const audioData = atob(response.audio);
-        const arrayBuffer = new ArrayBuffer(audioData.length);
-        const uint8Array = new Uint8Array(arrayBuffer);
-        for (let i = 0; i < audioData.length; i++) {
-            uint8Array[i] = audioData.charCodeAt(i);
-        }
-
-        const blob = new Blob([uint8Array], { type: 'audio/wav' });
-        const audioUrl = URL.createObjectURL(blob);
-
-        currentAudio = new Audio(audioUrl);
-        currentAudio.playbackRate = response.speed || 1;
+        const { audio, audioUrl } = createAudioFromBase64(response.audio, { speed: response.speed || 1 });
+        currentAudio = audio;
         console.log(`[VoxLocal] Audio element created with playback rate: ${currentAudio.playbackRate}x`);
 
         currentAudio.onloadedmetadata = () => {
@@ -1067,19 +1040,8 @@ function playNextAudioChunk() {
     updateStatus(`Playing chunk ${chunk.chunkIndex + 1}/${chunk.totalChunks} (streaming)`, 'speaking');
 
     try {
-        // Convert base64 back to audio
-        const audioData = atob(chunk.audio);
-        const arrayBuffer = new ArrayBuffer(audioData.length);
-        const uint8Array = new Uint8Array(arrayBuffer);
-        for (let i = 0; i < audioData.length; i++) {
-            uint8Array[i] = audioData.charCodeAt(i);
-        }
-
-        const blob = new Blob([uint8Array], { type: 'audio/wav' });
-        const audioUrl = URL.createObjectURL(blob);
-
-        currentAudio = new Audio(audioUrl);
-        currentAudio.playbackRate = chunk.speed || 1;
+        const { audio, audioUrl } = createAudioFromBase64(chunk.audio, { speed: chunk.speed || 1 });
+        currentAudio = audio;
 
         currentAudio.onended = () => {
             console.log(`[VoxLocal] ✅ Chunk ${chunk.chunkIndex + 1}/${chunk.totalChunks} playback COMPLETED`);
