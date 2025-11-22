@@ -178,7 +178,8 @@ function handleContextMenuSingle(audioResult) {
     console.log(`[VoxLocal] 📝 Context menu single text: "${audioResult.text ? audioResult.text.substring(0, 100) + (audioResult.text.length > 100 ? '...' : '') : 'N/A'}"`);
 
     // Check if this audio belongs to the current session and we're not cancelled
-    if (audioResult.sessionId !== contextMenuSessionId || isContextMenuCancelled) {
+    // Only check session mismatch when an active session exists (contextMenuSessionId is truthy)
+    if ((contextMenuSessionId && audioResult.sessionId !== contextMenuSessionId) || isContextMenuCancelled) {
         console.log(`[VoxLocal] 🚫 Ignoring context menu single audio - session mismatch (${audioResult.sessionId} vs ${contextMenuSessionId}) or cancelled (${isContextMenuCancelled})`);
         return;
     }
@@ -233,7 +234,8 @@ function handleContextMenuChunk(chunkResult) {
         }
 
         // Check if this chunk belongs to the current session and we're not cancelled
-        if (chunkResult.sessionId !== contextMenuSessionId || isContextMenuCancelled) {
+        // Only check session mismatch when an active session exists (contextMenuSessionId is truthy)
+        if ((contextMenuSessionId && chunkResult.sessionId !== contextMenuSessionId) || isContextMenuCancelled) {
             console.log(`[VoxLocal] 🚫 Ignoring context menu chunk - session mismatch (${chunkResult.sessionId} vs ${contextMenuSessionId}) or cancelled (${isContextMenuCancelled})`);
             return;
         }
