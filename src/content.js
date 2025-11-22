@@ -69,6 +69,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 showFloatingPlayer();
                 break;
 
+            case 'PLAY_SELECTION':
+                showFloatingPlayer();
+                // Stop any current playback before starting new selection
+                if (isStreaming || currentAudio) {
+                    stopPlayback();
+                }
+                speakFromPage('selection');
+                break;
+
             // Streaming TTS messages (used for both panel and context menu)
             case 'stream_chunk':
                 // Immediately discard chunks if not streaming

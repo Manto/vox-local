@@ -222,65 +222,14 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     if (info.menuItemId !== 'speak-selection' || !info.selectionText) return;
 
     try {
-        // Use the same streaming TTS flow as the panel's "play selection"
-        // Generate a unique request ID for this streaming session
-        const requestId = Date.now() + Math.random();
-
-        // Show player immediately when streaming starts
-        try {
-            await chrome.tabs.sendMessage(tab.id, { action: 'SHOW_PLAYER' });
-        } catch (error) {
-            console.log('[VoxLocal] Could not show player immediately, will show when first chunk arrives');
-        }
-
-        // Check if text needs chunking by splitting it first
-        const textChunks = splitTextIntoSentences(info.selectionText);
-        console.log(`[VoxLocal] Text split into ${textChunks.length} chunks for context menu TTS`);
-
-        await generateStreamingSpeech(
-            info.selectionText,
-            'af_heart', // Default voice for context menu
-            1.0, // Default speed
-            'fp32', // Default dtype
-            'webgpu', // Default device
-            requestId,
-            async (chunkResult) => {
-                // Queue chunk for sending to content script using the same flow as panel streaming
-                if (!pendingChunks.has(requestId)) {
-                    pendingChunks.set(requestId, []);
-                }
-                pendingChunks.get(requestId).push(chunkResult);
-
-                // Try to send immediately, but don't fail if content script is unavailable
-                if (tab.id) {
-                    await sendQueuedChunks(requestId, tab.id);
-                }
-            }
-        );
-
-        // Send completion message using the same flow as panel streaming
-        if (!pendingChunks.has(requestId)) {
-            pendingChunks.set(requestId, []);
-        }
-        pendingChunks.get(requestId).push({ action: 'stream_complete', requestId: requestId });
-
-        // Try to send immediately
-        if (tab.id) {
-            await sendQueuedChunks(requestId, tab.id);
-        }
-
+        // Send message to content script to show player and play the selected text
+        await chrome.tabs.sendMessage(tab.id, { action: 'PLAY_SELECTION' });
+        console.log('[VoxLocal] Sent PLAY_SELECTION message to content script');
     } catch (error) {
-        console.error('[VoxLocal] Context menu TTS error:', error);
-        chrome.tabs.sendMessage(tab.id, {
-            action: 'stream_error',
-            requestId: null,
-            error: error.message
-        }).catch(() => {
-            // Ignore if content script isn't ready
-        });
+        console.error('[VoxLocal] Context menu error:', error);
     }
 
-    console.log('[VoxLocal] Context menu TTS processing completed');
+    console.log('[VoxLocal] Context menu processing completed');
 });
 //////////////////////////////////////////////////////////////
 
