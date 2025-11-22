@@ -181,15 +181,15 @@ function handleContextMenuAudio(audioResult) {
         return;
     }
 
-    // Ignore stale audio from old sessions when we're already playing a different one
+    // Handle session preemption: stop context menu playback only for different sessions
     if (contextMenuSessionId && audioResult.sessionId !== contextMenuSessionId && isContextMenuPlaying) {
-        console.log(`[VoxLocal] 🚫 Ignoring context menu ${isChunk ? 'chunk' : 'single'} audio - stale session (${audioResult.sessionId} vs active ${contextMenuSessionId})`);
-        return;
+        console.log(`[VoxLocal] 🔄 New session ${audioResult.sessionId} preempting current session ${contextMenuSessionId}`);
+        stopPlayback();
     }
 
-    // If streaming is active or context menu is playing (including direct playback), stop current playback first
-    if (isStreaming || isContextMenuPlaying || currentAudio || contextMenuAudio) {
-        console.log(`[VoxLocal] 🛑 Stopping current playback before starting context menu ${isChunk ? 'chunk' : 'single'}`);
+    // Stop other playback types (streaming, direct playback) regardless of session
+    if (isStreaming || currentAudio || contextMenuAudio) {
+        console.log(`[VoxLocal] 🛑 Stopping other playback before starting context menu ${isChunk ? 'chunk' : 'single'}`);
         stopPlayback();
     }
 
