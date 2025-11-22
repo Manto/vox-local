@@ -202,35 +202,26 @@ function handleContextMenuAudio(audioResult) {
 
     if (isPlayerVisible) {
         console.log(`[VoxLocal] 🖥️ Floating player visible, integrating ${isChunk ? 'chunk' : 'single'} audio with state`);
-        // Start context menu playback session if not already started
-        if (!isContextMenuPlaying) {
-            console.log(`[VoxLocal] 🎯 Starting context menu ${isChunk ? 'chunk' : 'single'} audio session`);
-            contextMenuSessionId = audioResult.sessionId; // Set current session ID
-            isContextMenuPlaying = true;
-            isContextMenuCancelled = false; // Reset cancelled flag for new session
-            updateStatus(isChunk ? `Context menu: Playing chunk 1/${audioResult.totalChunks}` : 'Context menu: Speaking', 'speaking');
-            updateButtonStates();
-        }
-
-        // Add to queue and play immediately (since we stopped any current playback)
-        audioQueue.push(audioResult);
-        console.log(`[VoxLocal] ➕ Added context menu ${isChunk ? 'chunk' : 'single'} audio to queue. Queue now has ${audioQueue.length} items`);
-        console.log(`[VoxLocal] ▶️ Starting context menu ${isChunk ? 'chunk' : 'single'} playback immediately`);
-        playNextContextMenuChunk();
     } else {
-        console.log(`[VoxLocal] 🔇 Floating player not visible, playing ${isChunk ? 'chunk' : 'single'} audio directly`);
-        // Floating player not visible, play directly
-        if (isChunk) {
-            contextMenuDirectQueue.push(audioResult);
-            console.log(`[VoxLocal] ➕ Added context menu chunk ${audioResult.chunkIndex + 1} to direct queue. Queue now has ${contextMenuDirectQueue.length} chunks`);
-            if (!contextMenuAudio) {
-                console.log(`[VoxLocal] ▶️ No direct audio playing, starting direct context menu playback`);
-                playNextContextMenuChunkDirectly();
-            }
-        } else {
-            playContextMenuSingleDirectly(audioResult);
-        }
+        console.log(`[VoxLocal] 🔇 Floating player not visible, showing it for context menu playback`);
+        showFloatingPlayer();
     }
+
+    // Start context menu playback session if not already started
+    if (!isContextMenuPlaying) {
+        console.log(`[VoxLocal] 🎯 Starting context menu ${isChunk ? 'chunk' : 'single'} audio session`);
+        contextMenuSessionId = audioResult.sessionId; // Set current session ID
+        isContextMenuPlaying = true;
+        isContextMenuCancelled = false; // Reset cancelled flag for new session
+        updateStatus(isChunk ? `Context menu: Playing chunk 1/${audioResult.totalChunks}` : 'Context menu: Speaking', 'speaking');
+        updateButtonStates();
+    }
+
+    // Add to queue and play immediately (since we stopped any current playback)
+    audioQueue.push(audioResult);
+    console.log(`[VoxLocal] ➕ Added context menu ${isChunk ? 'chunk' : 'single'} audio to queue. Queue now has ${audioQueue.length} items`);
+    console.log(`[VoxLocal] ▶️ Starting context menu ${isChunk ? 'chunk' : 'single'} playback immediately`);
+    playNextContextMenuChunk();
 }
 
 
