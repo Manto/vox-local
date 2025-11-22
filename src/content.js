@@ -191,7 +191,7 @@ function createFloatingPlayer() {
     floatingPlayer.id = 'voxlocal-floating-player';
     floatingPlayer.innerHTML = `
         <div class="voxlocal-header">
-            <h1>🎙️ VoxLocal</h1>
+            <span class="voxlocal-title">🎙️ VoxLocal</span>
             <button class="voxlocal-close-btn" title="Close">&times;</button>
         </div>
         <div class="voxlocal-status-section">
@@ -219,30 +219,6 @@ function createFloatingPlayer() {
                 <label for="voxlocal-speed-slider">Speed: <span id="voxlocal-speed-value">1.0</span>x</label>
                 <input type="range" id="voxlocal-speed-slider" min="0.5" max="2.0" step="0.1" value="1.0">
             </div>
-            <div class="setting-group">
-                <label for="voxlocal-dtype">Model Quality:</label>
-                <select id="voxlocal-dtype">
-                    <option value="fp32">FP32 (Highest Quality)</option>
-                    <option value="fp16">FP16 (High Quality)</option>
-                    <option value="q8">Q8 (Balanced)</option>
-                    <option value="q4">Q4 (Fast)</option>
-                    <option value="q4f16">Q4F16 (Balanced)</option>
-                </select>
-            </div>
-            <div class="setting-group">
-                <label for="voxlocal-device">Device:</label>
-                <select id="voxlocal-device">
-                    <option value="webgpu">WebGPU (GPU)</option>
-                    <option value="wasm">WASM (CPU)</option>
-                </select>
-                <small id="voxlocal-device-note" class="setting-note">WebGPU requires FP32 precision</small>
-            </div>
-            <div class="setting-group">
-                <label>
-                    <input type="checkbox" id="voxlocal-auto-highlight">
-                    Highlight text while speaking
-                </label>
-            </div>
         </div>
     `;
 
@@ -269,7 +245,7 @@ function injectPlayerStyles() {
             position: fixed;
             top: 20px;
             right: 20px;
-            width: 320px;
+            width: 280px;
             background: white;
             border: 1px solid #dee2e6;
             border-radius: 8px;
@@ -285,13 +261,13 @@ function injectPlayerStyles() {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 16px 16px 12px 16px;
+            padding: 12px 12px 8px 12px;
             border-bottom: 1px solid #dee2e6;
         }
 
-        .voxlocal-header h1 {
+        .voxlocal-header .voxlocal-title {
             margin: 0;
-            font-size: 18px;
+            font-size: 16px;
             font-weight: 600;
         }
 
@@ -316,8 +292,8 @@ function injectPlayerStyles() {
         .voxlocal-status-section {
             display: flex;
             flex-direction: column;
-            gap: 8px;
-            margin: 16px;
+            gap: 6px;
+            margin: 12px;
         }
 
         .status-badge {
@@ -342,8 +318,8 @@ function injectPlayerStyles() {
         .voxlocal-controls {
             display: flex;
             flex-direction: column;
-            gap: 8px;
-            margin: 0 16px 20px 16px;
+            gap: 6px;
+            margin: 0 12px 16px 12px;
         }
 
         .voxlocal-btn {
@@ -384,8 +360,8 @@ function injectPlayerStyles() {
         }
 
         .voxlocal-settings {
-            margin: 0 16px 16px 16px;
-            padding-top: 16px;
+            margin: 0 12px 12px 12px;
+            padding-top: 12px;
             border-top: 1px solid #dee2e6;
         }
 
@@ -397,7 +373,7 @@ function injectPlayerStyles() {
         }
 
         .setting-group {
-            margin-bottom: 12px;
+            margin-bottom: 10px;
         }
 
         .setting-group label {
@@ -450,18 +426,10 @@ function setupEventListeners() {
     document.getElementById('voxlocal-play-stop-btn').addEventListener('click', togglePlayStop);
 
     // Settings change listeners
-    const deviceSelect = document.getElementById('voxlocal-device');
-    const dtypeSelect = document.getElementById('voxlocal-dtype');
     const voiceSelect = document.getElementById('voxlocal-voice-select');
-    const autoHighlightCheckbox = document.getElementById('voxlocal-auto-highlight');
 
-    dtypeSelect.addEventListener('change', saveSettings);
-    deviceSelect.addEventListener('change', () => {
-        handleDeviceChange();
-    });
     voiceSelect.addEventListener('change', saveSettings);
     speedSlider.addEventListener('change', saveSettings);
-    autoHighlightCheckbox.addEventListener('change', saveSettings);
 }
 
 // Get selected text from the page
@@ -536,12 +504,10 @@ function sendStreamingTTS(text, voice, speed) {
         requestId: requestId,
         text: text,
         voice: voice,
-        speed: speed,
-        dtype: document.getElementById('voxlocal-dtype').value,
-        device: document.getElementById('voxlocal-device').value
+        speed: speed
     };
 
-    console.log(`[VoxLocal] Sending streaming speak message to background script - text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}", voice: ${voice}, speed: ${speed}x, dtype: ${message.dtype}, device: ${message.device}`);
+    console.log(`[VoxLocal] Sending streaming speak message to background script - text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}", voice: ${voice}, speed: ${speed}x`);
 
     chrome.runtime.sendMessage(message, (response) => {
         if (chrome.runtime.lastError) {
@@ -805,11 +771,8 @@ function playNextAudioChunk() {
 // Settings storage functions
 async function saveSettings() {
     const settings = {
-        dtype: document.getElementById('voxlocal-dtype').value,
-        device: document.getElementById('voxlocal-device').value,
         voice: document.getElementById('voxlocal-voice-select').value,
-        speed: parseFloat(document.getElementById('voxlocal-speed-slider').value),
-        autoHighlight: document.getElementById('voxlocal-auto-highlight').checked
+        speed: parseFloat(document.getElementById('voxlocal-speed-slider').value)
     };
 
     try {
@@ -826,47 +789,20 @@ async function loadSettings() {
         const settings = result.voxLocalSettings || {};
 
         // Apply saved settings with defaults
-        document.getElementById('voxlocal-device').value = settings.device || 'webgpu';
-        document.getElementById('voxlocal-dtype').value = settings.dtype || 'fp32';
         document.getElementById('voxlocal-voice-select').value = settings.voice || 'af_heart';
         document.getElementById('voxlocal-speed-slider').value = settings.speed || 1.0;
         document.getElementById('voxlocal-speed-value').textContent = `${document.getElementById('voxlocal-speed-slider').value}x`;
-        document.getElementById('voxlocal-auto-highlight').checked = settings.autoHighlight || false;
-
-        // Apply WebGPU constraint - must use FP32
-        handleDeviceChange();
 
         console.log('[VoxLocal] Settings loaded:', settings);
     } catch (error) {
         console.error('[VoxLocal] Error loading settings:', error);
         // Set defaults if loading fails
-        document.getElementById('voxlocal-device').value = 'webgpu';
-        document.getElementById('voxlocal-dtype').value = 'fp32';
         document.getElementById('voxlocal-voice-select').value = 'af_heart';
         document.getElementById('voxlocal-speed-slider').value = 1.0;
         document.getElementById('voxlocal-speed-value').textContent = '1.0x';
-        document.getElementById('voxlocal-auto-highlight').checked = false;
-
-        // Apply WebGPU constraint
-        handleDeviceChange();
     }
 }
 
-// Function to handle device changes - WebGPU requires FP32
-function handleDeviceChange() {
-    const deviceSelect = document.getElementById('voxlocal-device');
-    const dtypeSelect = document.getElementById('voxlocal-dtype');
-
-    if (deviceSelect.value === 'webgpu') {
-        dtypeSelect.value = 'fp32';
-        dtypeSelect.disabled = true;
-        console.log('[VoxLocal] WebGPU selected - forcing FP32 dtype');
-    } else {
-        dtypeSelect.disabled = false;
-        console.log('[VoxLocal] WASM selected - dtype selection enabled');
-    }
-    saveSettings(); // Save the updated settings
-}
 
 // Get readable text from the entire page
 function getPageText() {
