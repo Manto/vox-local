@@ -187,9 +187,11 @@ function handleContextMenuAudio(audioResult) {
         stopPlayback();
     }
 
-    // Stop other playback types (streaming, direct playback) regardless of session
-    if (isStreaming || currentAudio || contextMenuAudio) {
-        console.log(`[VoxLocal] 🛑 Stopping other playback before starting context menu ${isChunk ? 'chunk' : 'single'}`);
+    // Stop non-context-menu playback (streaming) when starting a new context menu session
+    // Don't stop ongoing context menu playback for same-session chunks
+    const isNewContextMenuSession = !isContextMenuPlaying;
+    if (isNewContextMenuSession && (isStreaming || (currentAudio && !isContextMenuPlaying))) {
+        console.log(`[VoxLocal] 🛑 Stopping streaming playback before starting context menu ${isChunk ? 'chunk' : 'single'}`);
         stopPlayback();
     }
 
@@ -206,7 +208,6 @@ function handleContextMenuAudio(audioResult) {
             contextMenuSessionId = audioResult.sessionId; // Set current session ID
             isContextMenuPlaying = true;
             isContextMenuCancelled = false; // Reset cancelled flag for new session
-            isContextMenuStale = false; // Reset stale flag for new session
             updateStatus(isChunk ? `Context menu: Playing chunk 1/${audioResult.totalChunks}` : 'Context menu: Speaking', 'speaking');
             updateButtonStates();
         }
@@ -266,7 +267,6 @@ function playNextContextMenuChunk() {
             isContextMenuPlaying = false;
             isContextMenuGenerationComplete = false;
             isContextMenuCancelled = false;
-            isContextMenuStale = false;
             updateStatus('Ready', 'ready');
             updateButtonStates();
         } else if (isContextMenuPlaying && !isContextMenuGenerationComplete) {
@@ -312,7 +312,6 @@ function playNextContextMenuChunk() {
             isContextMenuPlaying = false;
             isContextMenuGenerationComplete = false;
             isContextMenuCancelled = false;
-            isContextMenuStale = false;
             updateStatus('Error playing context menu audio', 'error');
             updateButtonStates();
         };
@@ -335,7 +334,6 @@ function playNextContextMenuChunk() {
         isContextMenuPlaying = false;
         isContextMenuGenerationComplete = false;
         isContextMenuCancelled = false;
-        isContextMenuStale = false;
         updateStatus('Error: ' + error.message, 'error');
         updateButtonStates();
     }
@@ -910,6 +908,7 @@ function stopPlayback() {
 
     // Clear audio queue and reset context menu state
     audioQueue = [];
+    contextMenuDirectQueue = [];
     isContextMenuPlaying = false;
     isContextMenuGenerationComplete = false;
 
