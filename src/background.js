@@ -150,8 +150,8 @@ const generateStreamingSpeech = async (text, voice = 'af_heart', speed = 1, dtyp
 
     // Process each chunk
     for (let i = 0; i < textChunks.length; i++) {
-        // Check if streaming was cancelled
-        if (activeStreamingRequest?.cancelled) {
+        // Check if streaming was cancelled - capture requestId locally to avoid race conditions
+        if (!activeStreamingRequest || activeStreamingRequest.id !== requestId || activeStreamingRequest.cancelled) {
             console.log('[VoxLocal] Streaming cancelled by user');
             break;
         }
@@ -293,9 +293,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
                 (chunkResult) => {
                     // Send chunk to content script for playback and state management
                     chrome.tabs.sendMessage(tab.id, {
+                        ...chunkResult,
                         action: 'context_menu_chunk',
-                        sessionId: sessionId,
-                        ...chunkResult
+                        sessionId: sessionId
                     }).catch(error => {
                         console.log('[VoxLocal] Content script not ready for chunk playback, injecting direct playback');
                         // Fallback to direct injection if content script isn't ready
