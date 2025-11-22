@@ -48,6 +48,7 @@ let isContextMenuPlaying = false;
 let isContextMenuGenerationComplete = false;
 let contextMenuSessionId = 0; // Increment to cancel previous sessions
 let isContextMenuCancelled = false; // Flag to prevent new chunks from starting playback for the active session
+const cancelledContextMenuSessionIds = new Set(); // Track all cancelled session IDs to prevent late chunks
 
 // Audio queue for context menu playback
 let audioQueue = [];
@@ -176,7 +177,10 @@ function handleContextMenuAudio(audioResult) {
     console.log(`[VoxLocal] 📝 Context menu ${isChunk ? `chunk ${audioResult.chunkIndex + 1}/${audioResult.totalChunks}` : 'single'} text: "${audioResult.text ? audioResult.text.substring(0, 100) + (audioResult.text.length > 100 ? '...' : '') : 'N/A'}"`);
 
     // Ignore audio from cancelled sessions
-    if (isContextMenuCancelled && contextMenuSessionId === audioResult.sessionId) {
+    if (
+        (isContextMenuCancelled && contextMenuSessionId === audioResult.sessionId) ||
+        cancelledContextMenuSessionIds.has(audioResult.sessionId)
+    ) {
         console.log(`[VoxLocal] 🚫 Ignoring context menu ${isChunk ? 'chunk' : 'single'} audio - cancelled session (${audioResult.sessionId})`);
         return;
     }
@@ -213,6 +217,7 @@ function handleContextMenuAudio(audioResult) {
         contextMenuSessionId = audioResult.sessionId; // Set current session ID
         isContextMenuPlaying = true;
         isContextMenuCancelled = false; // Reset cancelled flag for new session
+        cancelledContextMenuSessionIds.delete(contextMenuSessionId); // Remove from cancelled set if present
         updateStatus(isChunk ? `Context menu: Playing chunk 1/${audioResult.totalChunks}` : 'Context menu: Speaking', 'speaking');
         updateButtonStates();
     }
@@ -906,6 +911,7 @@ function stopPlayback() {
     // Mark the current session as cancelled (if one exists) to block its late-arriving chunks
     if (contextMenuSessionId) {
         isContextMenuCancelled = true;
+        cancelledContextMenuSessionIds.add(contextMenuSessionId);
         console.log(`[VoxLocal] Marked context menu session ${contextMenuSessionId} as cancelled`);
     }
 
