@@ -43,32 +43,12 @@ class TTSSingleton {
         if (!this.instances.has(key)) {
             console.log(`[VoxLocal] Creating new TTS instance for ${key} (dtype: ${dtype}, device: ${device})`);
 
-            // Configure ONNX Runtime options to suppress warnings and optimize execution
+            // Configure ONNX Runtime options with only kokoro-js supported fields
             const ortOptions = {
                 dtype: dtype,
                 device: device,
                 progress_callback: progress_callback
             };
-
-            // Add execution provider configuration for WebGPU to reduce warnings
-            if (device === 'webgpu') {
-                ortOptions.executionProviders = [
-                    {
-                        name: 'webgpu',
-                        deviceType: 'gpu'
-                    }
-                ];
-                // Explicitly disable CPU fallback to reduce node assignment warnings
-                ortOptions.disableCpuFallback = true;
-                // Configure session options to suppress warnings
-                ortOptions.sessionOptions = {
-                    logLevel: 'error',
-                    logId: 'VoxLocal-Kokoro',
-                    enableProfiling: false,
-                    enableMemPattern: true,
-                    executionMode: 'sequential'
-                };
-            }
 
             this.instances.set(key, await KokoroTTS.from_pretrained(this.model_id, ortOptions));
         } else {
