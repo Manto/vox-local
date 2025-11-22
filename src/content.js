@@ -43,7 +43,6 @@ function createAudioFromBase64(base64, { speed = 1 } = {}) {
 
 // Context menu TTS state
 let contextMenuAudio = null;
-let contextMenuDirectQueue = []; // Queue for direct playback when floating player is hidden
 let isContextMenuPlaying = false;
 let isContextMenuGenerationComplete = false;
 let contextMenuSessionId = 0; // Increment to cancel previous sessions
@@ -335,96 +334,6 @@ function playNextContextMenuChunk() {
     }
 }
 
-// Play context menu single audio directly when floating player is not visible
-function playContextMenuSingleDirectly(audioResult) {
-    console.log('[VoxLocal] Playing context menu single audio directly');
-
-    try {
-        if (contextMenuAudio) {
-            contextMenuAudio.pause();
-            contextMenuAudio = null;
-        }
-
-        const { audio, audioUrl } = createAudioFromBase64(audioResult.audio, { speed: audioResult.speed || 1 });
-        contextMenuAudio = audio;
-
-        contextMenuAudio.onended = () => {
-            console.log('[VoxLocal] Direct context menu single audio playback completed');
-            URL.revokeObjectURL(audioUrl);
-            contextMenuAudio = null;
-        };
-
-        contextMenuAudio.onerror = (error) => {
-            console.error('[VoxLocal] Direct context menu single audio playback error:', error);
-            URL.revokeObjectURL(audioUrl);
-            contextMenuAudio = null;
-        };
-
-        contextMenuAudio.play().catch((error) => {
-            console.error('[VoxLocal] Direct context menu single audio play failed:', error.message);
-            URL.revokeObjectURL(audioUrl);
-            contextMenuAudio = null;
-        });
-
-    } catch (error) {
-        console.error('[VoxLocal] Error creating direct context menu single audio:', error);
-    }
-}
-
-// Play context menu chunk directly when floating player is not visible
-// Play next chunk from direct context menu queue
-function playNextContextMenuChunkDirectly() {
-    console.log(`[VoxLocal] 🔄 playNextContextMenuChunkDirectly called. Queue length: ${contextMenuDirectQueue.length}, currentAudio: ${!!contextMenuAudio}`);
-
-    if (contextMenuDirectQueue.length === 0) {
-        console.log(`[VoxLocal] ✅ Direct context menu playback complete - no more chunks`);
-        return;
-    }
-
-    const chunkResult = contextMenuDirectQueue.shift();
-    console.log(`[VoxLocal] 🎵 SPEAKING direct context menu chunk ${chunkResult.chunkIndex + 1}/${chunkResult.totalChunks}`);
-    console.log(`[VoxLocal] 📝 Direct chunk text: "${chunkResult.text ? chunkResult.text.substring(0, 100) + (chunkResult.text.length > 100 ? '...' : '') : 'N/A'}"`);
-
-    try {
-        if (contextMenuAudio) {
-            contextMenuAudio.pause();
-            contextMenuAudio = null;
-        }
-
-        const { audio, audioUrl } = createAudioFromBase64(chunkResult.audio, { speed: chunkResult.speed || 1 });
-        contextMenuAudio = audio;
-
-        contextMenuAudio.onended = () => {
-            console.log(`[VoxLocal] ✅ Direct context menu chunk ${chunkResult.chunkIndex + 1} playback completed`);
-            URL.revokeObjectURL(audioUrl);
-            contextMenuAudio = null;
-            // Play next chunk
-            playNextContextMenuChunkDirectly();
-        };
-
-        contextMenuAudio.onerror = (error) => {
-            console.error('[VoxLocal] Direct context menu chunk playback error:', error);
-            URL.revokeObjectURL(audioUrl);
-            contextMenuAudio = null;
-            // Continue with next chunk despite error
-            playNextContextMenuChunkDirectly();
-        };
-
-        console.log(`[VoxLocal] ▶️ Starting direct chunk ${chunkResult.chunkIndex + 1} audio playback...`);
-        contextMenuAudio.play().catch((error) => {
-            console.error(`[VoxLocal] ❌ Direct context menu chunk ${chunkResult.chunkIndex + 1} play FAILED:`, error.message);
-            URL.revokeObjectURL(audioUrl);
-            contextMenuAudio = null;
-            // Continue with next chunk despite error
-            playNextContextMenuChunkDirectly();
-        });
-
-    } catch (error) {
-        console.error('[VoxLocal] Error creating direct context menu chunk audio:', error);
-        // Continue with next chunk despite error
-        playNextContextMenuChunkDirectly();
-    }
-}
 
 // Toggle floating player visibility
 function toggleFloatingPlayer() {
@@ -904,7 +813,6 @@ function stopPlayback() {
 
     // Clear audio queue and reset context menu state
     audioQueue = [];
-    contextMenuDirectQueue = [];
     isContextMenuPlaying = false;
     isContextMenuGenerationComplete = false;
 
