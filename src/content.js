@@ -48,7 +48,6 @@ let isContextMenuPlaying = false;
 let isContextMenuGenerationComplete = false;
 let contextMenuSessionId = 0; // Increment to cancel previous sessions
 let isContextMenuCancelled = false; // Flag to prevent new chunks from starting playback for the active session
-let isContextMenuStale = false; // Flag to indicate session mismatch (stale session)
 
 // Audio queue for context menu playback
 let audioQueue = [];
@@ -176,16 +175,15 @@ function handleContextMenuAudio(audioResult) {
     console.log(`[VoxLocal] 🔄 RECEIVED context menu ${isChunk ? 'chunk' : 'single'} audio from background (session: ${audioResult.sessionId})`);
     console.log(`[VoxLocal] 📝 Context menu ${isChunk ? `chunk ${audioResult.chunkIndex + 1}/${audioResult.totalChunks}` : 'single'} text: "${audioResult.text ? audioResult.text.substring(0, 100) + (audioResult.text.length > 100 ? '...' : '') : 'N/A'}"`);
 
-    // Check session validity: handle stale sessions first, then cancelled status
-    // First check for session mismatch (stale session) - only when an active session exists
-    if (contextMenuSessionId && audioResult.sessionId !== contextMenuSessionId) {
-        console.log(`[VoxLocal] 🚫 Ignoring context menu ${isChunk ? 'chunk' : 'single'} audio - stale session (${audioResult.sessionId} vs ${contextMenuSessionId})`);
+    // Ignore audio from cancelled sessions
+    if (isContextMenuCancelled && contextMenuSessionId === audioResult.sessionId) {
+        console.log(`[VoxLocal] 🚫 Ignoring context menu ${isChunk ? 'chunk' : 'single'} audio - cancelled session (${audioResult.sessionId})`);
         return;
     }
 
-    // Then check if active session is cancelled
-    if (isContextMenuCancelled) {
-        console.log(`[VoxLocal] 🚫 Ignoring context menu ${isChunk ? 'chunk' : 'single'} audio - active session cancelled`);
+    // Ignore stale audio from old sessions when we're already playing a different one
+    if (contextMenuSessionId && audioResult.sessionId !== contextMenuSessionId && isContextMenuPlaying) {
+        console.log(`[VoxLocal] 🚫 Ignoring context menu ${isChunk ? 'chunk' : 'single'} audio - stale session (${audioResult.sessionId} vs active ${contextMenuSessionId})`);
         return;
     }
 
@@ -250,7 +248,6 @@ function handleContextMenuError(error) {
     isContextMenuPlaying = false;
     isContextMenuGenerationComplete = false;
     isContextMenuCancelled = false;
-    isContextMenuStale = false;
 
     if (isPlayerVisible) {
         updateStatus('Context menu error: ' + error, 'error');
@@ -915,11 +912,14 @@ function stopPlayback() {
     audioQueue = [];
     isContextMenuPlaying = false;
     isContextMenuGenerationComplete = false;
-    isContextMenuCancelled = true; // Mark active session as cancelled
-    isContextMenuStale = true; // Mark session as stale to prevent further chunks
-    contextMenuSessionId++; // Increment to invalidate any incoming chunks from previous session
 
-    console.log(`[VoxLocal] Cleared audio queue and incremented session ID to ${contextMenuSessionId}`);
+    // Mark the current session as cancelled (if one exists) to block its late-arriving chunks
+    if (contextMenuSessionId) {
+        isContextMenuCancelled = true;
+        console.log(`[VoxLocal] Marked context menu session ${contextMenuSessionId} as cancelled`);
+    }
+
+    console.log(`[VoxLocal] Cleared audio queue`);
 
     // Cancel streaming if active
     if (isStreaming) {
@@ -1022,7 +1022,6 @@ function resetStreamingState() {
     isContextMenuPlaying = false;
     isContextMenuGenerationComplete = false;
     isContextMenuCancelled = false;
-    isContextMenuStale = false;
     // Clear any queued audio to prevent stale items
     audioQueue = [];
     if (contextMenuAudio) {
