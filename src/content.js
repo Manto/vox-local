@@ -10,6 +10,7 @@ let currentAudio = null;
 // Streaming TTS state
 let audioChunks = {}; // Object to store chunks by index for proper ordering
 let isStreaming = false;
+let currentStreamingRequestId = null; // Track the current streaming request ID
 let streamChunksReceived = 0;
 let totalStreamChunks = 0;
 let nextExpectedChunkIndex = 0; // Track the next chunk index we should play
@@ -42,6 +43,7 @@ function createAudioFromBase64(base64, { speed = 1 } = {}) {
 
 // Context menu TTS state
 let contextMenuAudio = null;
+let contextMenuDirectQueue = []; // Queue for direct playback when floating player is hidden
 let isContextMenuPlaying = false;
 let isContextMenuGenerationComplete = false;
 let contextMenuSessionId = 0; // Increment to cancel previous sessions
@@ -76,7 +78,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     // Handle action-based messages (TTS and context menu)
     if (message.action) {
-        console.log('[VoxLocal] Received action message:', message.action);
+        console.log('[VoxLocal] Received action message:', message);
 
         switch (message.action) {
             // Context menu messages
@@ -98,11 +100,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
             // Streaming TTS messages
             case 'stream_chunk':
-                console.log(`[VoxLocal] 🔄 RECEIVED streaming chunk ${message.chunkIndex + 1}/${message.totalChunks} from background`);
-
                 // Immediately discard chunks if not streaming
                 if (!isStreaming) {
-                    console.log(`[VoxLocal] ❌ Discarding late streaming chunk ${message.chunkIndex + 1}/${message.totalChunks} - streaming stopped`);
+                    return;
+                }
+
+                // Discard chunks that don't match the current streaming request
+                if (message.requestId !== currentStreamingRequestId) {
                     return;
                 }
 
@@ -117,36 +121,50 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 // Update status
                 updateStatus(`Processing chunks: ${streamChunksReceived}/${totalStreamChunks} received`, 'loading');
 
-                // Start playback only when we have the first chunk (index 0) and no audio is playing
-                if (!currentAudio && audioChunks[0]) {
-                    console.log(`[VoxLocal] ▶️ Starting playback - first chunk available and no current audio playing`);
+                // Start or resume playback when no audio is currently playing
+                if (!currentAudio && audioChunks[nextExpectedChunkIndex]) {
+                    console.log(`[VoxLocal] ▶️ ${nextExpectedChunkIndex === 0 ? 'Starting' : 'Resuming'} playback - chunk ${nextExpectedChunkIndex + 1} available`);
                     playNextAudioChunk();
                 }
 
                 break;
 
             case 'stream_complete':
-                console.log('[VoxLocal] Streaming complete');
-                isStreaming = false;
+                console.log(`[VoxLocal] Streaming complete (requestId: ${message.requestId})`);
 
-                // If no chunks are currently playing, update status
-                if (!currentAudio) {
-                    updateStatus('Ready', 'ready');
-                    updateButtonStates();
+                // Only process completion if it matches the current streaming request
+                if (message.requestId === currentStreamingRequestId) {
+                    isStreaming = false;
+                    currentStreamingRequestId = null;
+
+                    // If no chunks are currently playing, update status
+                    if (!currentAudio) {
+                        updateStatus('Ready', 'ready');
+                        updateButtonStates();
+                    }
+                } else {
+                    console.log(`[VoxLocal] 🚫 Ignoring stream_complete - wrong request ID (expected: ${currentStreamingRequestId}, got: ${message.requestId})`);
                 }
 
                 break;
 
             case 'stream_error':
-                console.error('[VoxLocal] Streaming error:', message.error);
-                updateStatus('Streaming error: ' + message.error, 'error');
-                resetStreamingState();
+                console.error(`[VoxLocal] Streaming error (requestId: ${message.requestId}):`, message.error);
+
+                // Only process error if it matches the current streaming request
+                if (message.requestId === currentStreamingRequestId) {
+                    updateStatus('Streaming error: ' + message.error, 'error');
+                    resetStreamingState();
+                } else {
+                    console.log(`[VoxLocal] 🚫 Ignoring stream_error - wrong request ID (expected: ${currentStreamingRequestId}, got: ${message.requestId})`);
+                }
                 break;
 
             default:
                 console.log('[VoxLocal] Unknown action:', message.action);
         }
-        return true; // Keep channel open for async operations
+        // Action messages are handled asynchronously but don't need a response
+        return false;
     }
 
     // If we get here, it's an unknown message format
@@ -200,12 +218,6 @@ function handleContextMenuChunk(chunkResult) {
     console.log(`[VoxLocal] 🔄 RECEIVED context menu chunk ${chunkResult.chunkIndex + 1}/${chunkResult.totalChunks} from background (session: ${chunkResult.sessionId})`);
     console.log(`[VoxLocal] 📝 Context menu chunk text: "${chunkResult.text ? chunkResult.text.substring(0, 100) + (chunkResult.text.length > 100 ? '...' : '') : 'N/A'}"`);
 
-    // Check if this chunk belongs to the current session and we're not cancelled
-    if (chunkResult.sessionId !== contextMenuSessionId || isContextMenuCancelled) {
-        console.log(`[VoxLocal] 🚫 Ignoring context menu chunk - session mismatch (${chunkResult.sessionId} vs ${contextMenuSessionId}) or cancelled (${isContextMenuCancelled})`);
-        return;
-    }
-
     if (isPlayerVisible) {
         console.log(`[VoxLocal] 🖥️ Floating player visible, integrating with streaming state`);
         // If floating player is visible, integrate with existing streaming state
@@ -220,6 +232,12 @@ function handleContextMenuChunk(chunkResult) {
             updateButtonStates();
         }
 
+        // Check if this chunk belongs to the current session and we're not cancelled
+        if (chunkResult.sessionId !== contextMenuSessionId || isContextMenuCancelled) {
+            console.log(`[VoxLocal] 🚫 Ignoring context menu chunk - session mismatch (${chunkResult.sessionId} vs ${contextMenuSessionId}) or cancelled (${isContextMenuCancelled})`);
+            return;
+        }
+
         // Add to queue and play if nothing is currently playing
         audioQueue.push(chunkResult);
         console.log(`[VoxLocal] ➕ Added context menu chunk ${chunkResult.chunkIndex + 1} to queue. Queue now has ${audioQueue.length} chunks`);
@@ -228,9 +246,14 @@ function handleContextMenuChunk(chunkResult) {
             playNextContextMenuChunk();
         }
     } else {
-        console.log(`[VoxLocal] 🔇 Floating player not visible, playing directly`);
-        // Floating player not visible, play directly
-        playContextMenuChunkDirectly(chunkResult);
+        console.log(`[VoxLocal] 🔇 Floating player not visible, queuing for direct playback`);
+        // Floating player not visible, queue for direct playback
+        contextMenuDirectQueue.push(chunkResult);
+        console.log(`[VoxLocal] ➕ Added context menu chunk ${chunkResult.chunkIndex + 1} to direct queue. Queue now has ${contextMenuDirectQueue.length} chunks`);
+        if (!contextMenuAudio) {
+            console.log(`[VoxLocal] ▶️ No direct audio playing, starting direct context menu playback`);
+            playNextContextMenuChunkDirectly();
+        }
     }
 }
 
@@ -372,8 +395,18 @@ function playContextMenuSingleDirectly(audioResult) {
 }
 
 // Play context menu chunk directly when floating player is not visible
-function playContextMenuChunkDirectly(chunkResult) {
-    console.log(`[VoxLocal] Playing context menu chunk ${chunkResult.chunkIndex + 1}/${chunkResult.totalChunks} directly`);
+// Play next chunk from direct context menu queue
+function playNextContextMenuChunkDirectly() {
+    console.log(`[VoxLocal] 🔄 playNextContextMenuChunkDirectly called. Queue length: ${contextMenuDirectQueue.length}, currentAudio: ${!!contextMenuAudio}`);
+
+    if (contextMenuDirectQueue.length === 0) {
+        console.log(`[VoxLocal] ✅ Direct context menu playback complete - no more chunks`);
+        return;
+    }
+
+    const chunkResult = contextMenuDirectQueue.shift();
+    console.log(`[VoxLocal] 🎵 SPEAKING direct context menu chunk ${chunkResult.chunkIndex + 1}/${chunkResult.totalChunks}`);
+    console.log(`[VoxLocal] 📝 Direct chunk text: "${chunkResult.text ? chunkResult.text.substring(0, 100) + (chunkResult.text.length > 100 ? '...' : '') : 'N/A'}"`);
 
     try {
         if (contextMenuAudio) {
@@ -385,25 +418,34 @@ function playContextMenuChunkDirectly(chunkResult) {
         contextMenuAudio = audio;
 
         contextMenuAudio.onended = () => {
-            console.log(`[VoxLocal] Direct context menu chunk ${chunkResult.chunkIndex + 1} playback completed`);
+            console.log(`[VoxLocal] ✅ Direct context menu chunk ${chunkResult.chunkIndex + 1} playback completed`);
             URL.revokeObjectURL(audioUrl);
             contextMenuAudio = null;
+            // Play next chunk
+            playNextContextMenuChunkDirectly();
         };
 
         contextMenuAudio.onerror = (error) => {
             console.error('[VoxLocal] Direct context menu chunk playback error:', error);
             URL.revokeObjectURL(audioUrl);
             contextMenuAudio = null;
+            // Continue with next chunk despite error
+            playNextContextMenuChunkDirectly();
         };
 
+        console.log(`[VoxLocal] ▶️ Starting direct chunk ${chunkResult.chunkIndex + 1} audio playback...`);
         contextMenuAudio.play().catch((error) => {
-            console.error('[VoxLocal] Direct context menu chunk play failed:', error.message);
+            console.error(`[VoxLocal] ❌ Direct context menu chunk ${chunkResult.chunkIndex + 1} play FAILED:`, error.message);
             URL.revokeObjectURL(audioUrl);
             contextMenuAudio = null;
+            // Continue with next chunk despite error
+            playNextContextMenuChunkDirectly();
         });
 
     } catch (error) {
         console.error('[VoxLocal] Error creating direct context menu chunk audio:', error);
+        // Continue with next chunk despite error
+        playNextContextMenuChunkDirectly();
     }
 }
 
@@ -766,9 +808,13 @@ function queryModelStatus() {
 
 // Function to send text to streaming TTS for speech generation
 function sendStreamingTTS(text, voice, speed) {
+    // Generate a unique request ID for this streaming session
+    const requestId = Date.now() + Math.random();
+
     // Reset streaming state
     audioChunks = {};
     nextExpectedChunkIndex = 0;
+    currentStreamingRequestId = requestId; // Track the current request ID
     isStreaming = true;
     streamChunksReceived = 0;
     totalStreamChunks = 0;
@@ -781,6 +827,7 @@ function sendStreamingTTS(text, voice, speed) {
     // Send message to background script for streaming
     const message = {
         action: 'speak_stream',
+        requestId: requestId,
         text: text,
         voice: voice,
         speed: speed,
@@ -980,6 +1027,7 @@ function updateModelStatus(message) {
 function resetStreamingState() {
     audioChunks = {};
     nextExpectedChunkIndex = 0;
+    currentStreamingRequestId = null;
     isStreaming = false;
     streamChunksReceived = 0;
     totalStreamChunks = 0;
@@ -1012,17 +1060,13 @@ function updateButtonStates() {
 
 // Play next audio chunk from stored chunks
 function playNextAudioChunk() {
-    console.log(`[VoxLocal] 🔄 playNextAudioChunk called. Next expected: ${nextExpectedChunkIndex}, isStreaming: ${isStreaming}, currentAudio: ${!!currentAudio}`);
-
     // Check if we have the next expected chunk
     if (!audioChunks[nextExpectedChunkIndex]) {
         if (isStreaming) {
-            console.log(`[VoxLocal] ⏳ Streaming: waiting for next chunk...`);
             updateStatus('Streaming: waiting for next chunk...', 'loading');
         } else {
             // Streaming complete, check if we have all chunks
             if (nextExpectedChunkIndex >= totalStreamChunks) {
-                console.log(`[VoxLocal] ✅ All chunks processed, ready for new requests`);
                 updateStatus('Ready', 'ready');
                 resetButtons();
             }
@@ -1033,8 +1077,6 @@ function playNextAudioChunk() {
     const chunk = audioChunks[nextExpectedChunkIndex];
     delete audioChunks[nextExpectedChunkIndex]; // Remove from storage
     nextExpectedChunkIndex++;
-
-    console.log(`[VoxLocal] 🎵 SPEAKING chunk ${chunk.chunkIndex + 1}/${chunk.totalChunks}. Next expected: ${nextExpectedChunkIndex}`);
     console.log(`[VoxLocal] 📝 Chunk text: "${chunk.text ? chunk.text.substring(0, 100) + (chunk.text.length > 100 ? '...' : '') : 'N/A'}"`);
 
     updateStatus(`Playing chunk ${chunk.chunkIndex + 1}/${chunk.totalChunks} (streaming)`, 'speaking');

@@ -116,7 +116,7 @@ const generateSpeech = async (text, voice = 'af_heart', speed = 1, dtype = 'fp32
 };
 
 // Streaming TTS function that processes text in chunks and sends audio segments
-const generateStreamingSpeech = async (text, voice = 'af_heart', speed = 1, dtype = 'fp32', device = 'webgpu', onChunkComplete) => {
+const generateStreamingSpeech = async (text, voice = 'af_heart', speed = 1, dtype = 'fp32', device = 'webgpu', requestId, onChunkComplete) => {
     console.log(`[VoxLocal] Starting streaming speech generation for text (${text.length} characters) with voice: ${voice}, speed: ${speed}x, dtype: ${dtype}, device: ${device}`);
 
     // Split text into manageable chunks
@@ -173,6 +173,7 @@ const generateStreamingSpeech = async (text, voice = 'af_heart', speed = 1, dtyp
 
             const chunkResult = {
                 action: 'stream_chunk',
+                requestId: requestId,
                 audio: base64Audio,
                 sampleRate: audio.sample_rate,
                 voice: voice,
@@ -288,6 +289,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
                 1.0, // Default speed
                 'fp32', // Default dtype
                 'webgpu', // Default device
+                sessionId,
                 (chunkResult) => {
                     // Send chunk to content script for playback and state management
                     chrome.tabs.sendMessage(tab.id, {
@@ -365,6 +367,9 @@ async function sendQueuedChunks(requestId, tabId) {
         return;
     }
 
+    console.log(`sendQueuedChunks,pending chunks:`);
+    console.log(pendingChunks);
+
     const messages = pendingChunks.get(requestId);
     if (messages.length === 0) {
         return;
@@ -372,14 +377,17 @@ async function sendQueuedChunks(requestId, tabId) {
 
     console.log(`[VoxLocal] Attempting to send ${messages.length} queued messages for request ${requestId} to tab ${tabId}`);
 
-    // Send all pending messages
-    for (const message of messages) {
+    // Send pending messages one by one, removing successfully sent ones
+    while (messages.length > 0) {
+        const message = messages[0]; // Peek at the first message
         try {
             await chrome.tabs.sendMessage(tabId, message);
             console.log(`[VoxLocal] Successfully sent queued message ${message.action}`);
+            messages.shift(); // Remove the successfully sent message
         } catch (sendError) {
             console.log(`[VoxLocal] Content script unavailable for message ${message.action}, will retry later`);
-            // Don't remove from queue if sending failed - stop processing and return
+            console.log(sendError);
+            // Stop processing if sending failed - keep remaining messages for later retry
             return;
         }
     }
@@ -459,6 +467,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     message.speed,
                     message.dtype,
                     message.device,
+                    requestId,
                     async (chunkResult) => {
                         // Queue chunk for sending to content script only if streaming hasn't been cancelled
                         if (activeStreamingRequest?.id === requestId && !activeStreamingRequest.cancelled) {
@@ -486,7 +495,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     if (!pendingChunks.has(requestId)) {
                         pendingChunks.set(requestId, []);
                     }
-                    pendingChunks.get(requestId).push({ action: 'stream_complete' });
+                    pendingChunks.get(requestId).push({ action: 'stream_complete', requestId: requestId });
 
                     // Try to send immediately
                     if (tabId) {
@@ -508,6 +517,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     }
                     pendingChunks.get(requestId).push({
                         action: 'stream_error',
+                        requestId: requestId,
                         error: error.message
                     });
 
