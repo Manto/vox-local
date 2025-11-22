@@ -27,7 +27,7 @@ chrome.action.onClicked.addListener(async (tab) => {
 
     try {
         // Send message to content script to toggle the floating player
-        await chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE_PLAYER' });
+        await chrome.tabs.sendMessage(tab.id, { action: 'TOGGLE_PLAYER' });
     } catch (error) {
         console.log('[VoxLocal] Content script not ready, will be initialized on next page load');
     }
@@ -215,136 +215,65 @@ chrome.runtime.onInstalled.addListener(function () {
 
 // Perform TTS when the user clicks a context menu
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+
+    console.log(`[VoxLocal] Context menu activated ${info.menuItemId} for selected text (${info.selectionText.length} characters)`);
+
     // Ignore context menu clicks that are not for speech (or when there is no input)
     if (info.menuItemId !== 'speak-selection' || !info.selectionText) return;
 
-    console.log(`[VoxLocal] Context menu activated for selected text (${info.selectionText.length} characters)`);
-
     try {
+        // Use the same streaming TTS flow as the panel's "play selection"
+        // Generate a unique request ID for this streaming session
+        const requestId = Date.now() + Math.random();
+
+        // Show player immediately when streaming starts
+        try {
+            await chrome.tabs.sendMessage(tab.id, { action: 'SHOW_PLAYER' });
+        } catch (error) {
+            console.log('[VoxLocal] Could not show player immediately, will show when first chunk arrives');
+        }
+
         // Check if text needs chunking by splitting it first
         const textChunks = splitTextIntoSentences(info.selectionText);
         console.log(`[VoxLocal] Text split into ${textChunks.length} chunks for context menu TTS`);
 
-        // If only one chunk, use regular TTS (more efficient for short text)
-        if (textChunks.length === 1) {
-            console.log('[VoxLocal] Single chunk detected, using regular TTS for efficiency');
-            const result = await generateSpeech(
-                info.selectionText,
-                'af_heart', // Default voice for context menu
-                1.0, // Default speed
-                'fp32', // Default dtype
-                'webgpu' // Default device
-            );
+        await generateStreamingSpeech(
+            info.selectionText,
+            'af_heart', // Default voice for context menu
+            1.0, // Default speed
+            'fp32', // Default dtype
+            'webgpu', // Default device
+            requestId,
+            async (chunkResult) => {
+                // Queue chunk for sending to content script using the same flow as panel streaming
+                if (!pendingChunks.has(requestId)) {
+                    pendingChunks.set(requestId, []);
+                }
+                pendingChunks.get(requestId).push(chunkResult);
 
-            // Send single audio result to content script
-            const sessionId = Date.now() + Math.random(); // Generate unique session ID
-            chrome.tabs.sendMessage(tab.id, {
-                action: 'context_menu_single',
-                sessionId: sessionId,
-                audio: result.audio,
-                sampleRate: result.sampleRate,
-                voice: result.voice,
-                speed: result.speed,
-                text: info.selectionText
-            }).catch(error => {
-                console.log('[VoxLocal] Content script not ready for single audio playback, injecting direct playback');
-                // Fallback to direct injection if content script isn't ready
-                chrome.scripting.executeScript({
-                    target: { tabId: tab.id },
-                    args: [result],
-                    function: (result) => {
-                        try {
-                            console.log('[VoxLocal] Playing context menu single audio');
-                            const audioData = atob(result.audio);
-                            const arrayBuffer = new ArrayBuffer(audioData.length);
-                            const uint8Array = new Uint8Array(arrayBuffer);
-                            for (let i = 0; i < audioData.length; i++) {
-                                uint8Array[i] = audioData.charCodeAt(i);
-                            }
+                // Try to send immediately, but don't fail if content script is unavailable
+                if (tab.id) {
+                    await sendQueuedChunks(requestId, tab.id);
+                }
+            }
+        );
 
-                            const blob = new Blob([uint8Array], { type: 'audio/wav' });
-                            const audioUrl = URL.createObjectURL(blob);
-                            const audio = new Audio(audioUrl);
-                            audio.playbackRate = result.speed || 1;
-
-                            audio.onended = () => {
-                                console.log('[VoxLocal] Context menu single audio playback completed');
-                                URL.revokeObjectURL(audioUrl);
-                            };
-
-                            audio.play().catch(console.error);
-                        } catch (error) {
-                            console.error('[VoxLocal] Error playing context menu single audio:', error);
-                        }
-                    }
-                });
-            });
-        } else {
-            // Multiple chunks - use streaming TTS
-            console.log(`[VoxLocal] Multiple chunks (${textChunks.length}) detected, using streaming TTS`);
-            const sessionId = Date.now() + Math.random(); // Generate unique session ID
-            await generateStreamingSpeech(
-                info.selectionText,
-                'af_heart', // Default voice for context menu
-                1.0, // Default speed
-                'fp32', // Default dtype
-                'webgpu', // Default device
-                sessionId,
-                (chunkResult) => {
-                    // Send chunk to content script for playback and state management
-                    chrome.tabs.sendMessage(tab.id, {
-                        ...chunkResult,
-                        action: 'context_menu_chunk',
-                        sessionId: sessionId
-                    }).catch(error => {
-                        console.log('[VoxLocal] Content script not ready for chunk playback, injecting direct playback');
-                        // Fallback to direct injection if content script isn't ready
-                        chrome.scripting.executeScript({
-                            target: { tabId: tab.id },
-                            args: [chunkResult],
-                            function: (chunkResult) => {
-                                try {
-                                    console.log(`[VoxLocal] Playing context menu chunk ${chunkResult.chunkIndex + 1}/${chunkResult.totalChunks}`);
-                                    const audioData = atob(chunkResult.audio);
-                                    const arrayBuffer = new ArrayBuffer(audioData.length);
-                                    const uint8Array = new Uint8Array(arrayBuffer);
-                                    for (let i = 0; i < audioData.length; i++) {
-                                        uint8Array[i] = audioData.charCodeAt(i);
-                                    }
-
-                                    const blob = new Blob([uint8Array], { type: 'audio/wav' });
-                                    const audioUrl = URL.createObjectURL(blob);
-                                    const audio = new Audio(audioUrl);
-                                    audio.playbackRate = chunkResult.speed || 1;
-
-                                    audio.onended = () => {
-                                        console.log(`[VoxLocal] Context menu chunk ${chunkResult.chunkIndex + 1} playback completed`);
-                                        URL.revokeObjectURL(audioUrl);
-                                    };
-
-                                    audio.play().catch(console.error);
-                                } catch (error) {
-                                    console.error('[VoxLocal] Error playing context menu chunk:', error);
-                                }
-                            }
-                        });
-                    });
-                });
+        // Send completion message using the same flow as panel streaming
+        if (!pendingChunks.has(requestId)) {
+            pendingChunks.set(requestId, []);
         }
+        pendingChunks.get(requestId).push({ action: 'stream_complete', requestId: requestId });
 
-        // Send completion message (only for streaming, single audio handles its own completion)
-        if (textChunks.length > 1) {
-            chrome.tabs.sendMessage(tab.id, {
-                action: 'context_menu_complete'
-            }).catch(() => {
-                // Ignore if content script isn't ready
-            });
+        // Try to send immediately
+        if (tab.id) {
+            await sendQueuedChunks(requestId, tab.id);
         }
 
     } catch (error) {
         console.error('[VoxLocal] Context menu TTS error:', error);
         chrome.tabs.sendMessage(tab.id, {
-            action: 'context_menu_error',
+            action: 'stream_error',
+            requestId: null,
             error: error.message
         }).catch(() => {
             // Ignore if content script isn't ready
@@ -461,6 +390,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // Run streaming TTS asynchronously
         (async function () {
             try {
+                // Show player immediately when streaming starts
+                try {
+                    await chrome.tabs.sendMessage(tabId, { action: 'SHOW_PLAYER' });
+                } catch (error) {
+                    console.log('[VoxLocal] Could not show player immediately, will show when first chunk arrives');
+                }
                 await generateStreamingSpeech(
                     message.text,
                     message.voice,
