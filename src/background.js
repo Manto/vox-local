@@ -3,21 +3,9 @@
 import { KokoroTTS } from 'kokoro-js';
 import { splitTextIntoSentences } from './utils/textSplitter.js';
 
-// Configure ONNX Runtime to suppress verbose warnings
-// This prevents the "Some nodes were not assigned to the preferred execution providers" warning
-if (typeof globalThis !== 'undefined') {
-    // Configure ONNX Runtime environment before any models are loaded
-    if (globalThis.ort) {
-        globalThis.ort.env.logLevel = 'error'; // Only show errors, suppress warnings
-        globalThis.ort.env.wasm.wasmPaths = ''; // Prevent additional WASM loading messages
-    }
-
-    // Set environment variables to suppress ONNX warnings
-    if (typeof process !== 'undefined' && process.env) {
-        process.env.ONNX_RUNTIME_LOG_LEVEL = '2'; // 0=verbose, 1=info, 2=warning, 3=error, 4=fatal
-        process.env.ONNX_RUNTIME_DISABLE_TELEMETRY = '1';
-    }
-}
+// Note: ONNX Runtime warnings cannot be suppressed from the extension.
+// Any suppression should be configured via KokoroTTS/kokoro-js initialization options
+// or by upgrading kokoro-js if those features become available.
 
 // Efficient Uint8Array to base64 conversion
 function uint8ArrayToBase64(uint8Array) {
@@ -253,7 +241,6 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
     try {
         // Check if text needs chunking by splitting it first
-        const { splitTextIntoSentences } = await import('./utils/textSplitter.js');
         const textChunks = splitTextIntoSentences(info.selectionText);
         console.log(`[VoxLocal] Text split into ${textChunks.length} chunks for context menu TTS`);
 
