@@ -1,4 +1,3 @@
-
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -12,10 +11,10 @@ const config = {
     devtool: process.env.NODE_ENV === 'production' ? false : 'inline-source-map',
     entry: {
         background: {
-            import: './src/background.js',
+            import: './entrypoints/background.js',
             chunkLoading: `import-scripts`,
         },
-        content: './src/content.js',
+        content: './entrypoints/content.js',
     },
     output: {
         path: path.resolve(__dirname, 'build'),

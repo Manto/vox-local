@@ -1,7 +1,7 @@
 // background.js - Handles requests from the UI, runs the TTS model, then sends back audio
 
 import { KokoroTTS } from 'kokoro-js';
-import { splitTextIntoSentences } from './utils/textSplitter.js';
+import { splitTextIntoSentences } from '../src/utils/textSplitter';
 
 // Note: ONNX Runtime warnings cannot be suppressed from the extension.
 // Any suppression should be configured via KokoroTTS/kokoro-js initialization options
@@ -471,3 +471,10 @@ chrome.runtime.onSuspend.addListener(() => {
 });
 //////////////////////////////////////////////////////////////
 
+import { defineBackground } from "wxt/sandbox";
+
+export default defineBackground({
+  main() {
+    // Background script logic is already initialized above
+  }
+});
