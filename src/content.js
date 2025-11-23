@@ -206,7 +206,7 @@ function createFloatingPlayer() {
         </div>
         <div class="voxlocal-controls">
             <button id="voxlocal-play-stop-btn" class="voxlocal-btn voxlocal-btn-primary" title="Play selection or page">
-                <span class="icon">▶️</span> Play
+                <img src="" class="icon" alt="Play"> Play
             </button>
         </div>
         <div class="voxlocal-settings">
@@ -246,6 +246,7 @@ function createFloatingPlayer() {
     // Load settings and initialize
     loadSettings();
     updateStatus('Ready');
+    updateButtonText(); // Set initial button text based on current selection
     queryModelStatus();
 }
 
@@ -258,7 +259,7 @@ function injectPlayerStyles() {
             top: 20px;
             left: auto;
             right: 20px;
-            width: 280px;
+            width: 240px;
             background: white;
             border: 1px solid #dee2e6;
             border-radius: 8px;
@@ -310,7 +311,7 @@ function injectPlayerStyles() {
         }
 
         .status-badge {
-            padding: 6px 12px;
+            padding: 4px 10px;
             border-radius: 4px;
             font-size: 12px;
             font-weight: 500;
@@ -330,7 +331,7 @@ function injectPlayerStyles() {
         }
 
         .voxlocal-btn {
-            padding: 10px 16px;
+            padding: 4px 12px;
             border: none;
             border-radius: 6px;
             font-size: 14px;
@@ -341,6 +342,7 @@ function injectPlayerStyles() {
             align-items: center;
             justify-content: center;
             gap: 6px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }
 
         .voxlocal-btn:disabled { opacity: 0.6; cursor: not-allowed; }
@@ -349,7 +351,19 @@ function injectPlayerStyles() {
         .voxlocal-btn-danger { background-color: #dc3545; color: white; }
         .voxlocal-btn-danger:hover:not(:disabled) { background-color: #c82333; }
 
-        .icon { font-size: 16px; }
+        .icon {
+            font-size: 48px;
+            width: 48px;
+            height: 48px;
+            vertical-align: middle;
+            margin-right: 4px;
+        }
+
+        .icon img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
 
         .voxlocal-input-section { margin: 0 16px 20px 16px; }
 
@@ -510,6 +524,9 @@ function setupEventListeners() {
         hideAllSettingControls();
     });
     speedSlider.addEventListener('change', saveSettings);
+
+    // Listen for text selection changes to update button text
+    document.addEventListener('selectionchange', updateButtonText);
 }
 
 // Drag functionality
@@ -799,11 +816,24 @@ function playAudio(response) {
     }
 }
 
+// Update button text based on current selection
+function updateButtonText() {
+    const playStopBtn = document.getElementById('voxlocal-play-stop-btn');
+    if (!playStopBtn || isStreaming) return; // Don't update if streaming
+
+    const selectedText = getSelectedText();
+    const buttonText = selectedText && selectedText.trim() !== '' ? 'Play Selection' : 'Play Page';
+    const iconPath = chrome.runtime.getURL('icons/icon_128x128_2.png');
+
+    playStopBtn.innerHTML = `<img src="${iconPath}" class="icon" alt="Play"> ${buttonText}`;
+}
+
 // Reset button states
 function resetButtons() {
     const playStopBtn = document.getElementById('voxlocal-play-stop-btn');
     playStopBtn.disabled = false;
-    playStopBtn.innerHTML = '<span class="icon">▶️</span> Play';
+
+    updateButtonText();
     playStopBtn.title = 'Play selection or page';
     playStopBtn.className = 'voxlocal-btn voxlocal-btn-primary';
 }
@@ -840,7 +870,8 @@ function updateButtonStates() {
     if (isStreaming) {
         // During streaming, change to stop mode
         playStopBtn.disabled = false;
-        playStopBtn.innerHTML = '<span class="icon">⏹️</span> Stop';
+        const iconPath = chrome.runtime.getURL('icons/voxlocal-stop.png');
+        playStopBtn.innerHTML = `<img src="${iconPath}" class="icon" alt="Stop"> Stop`;
         playStopBtn.title = 'Stop speaking';
         playStopBtn.className = 'voxlocal-btn voxlocal-btn-danger';
     } else {
