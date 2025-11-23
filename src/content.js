@@ -434,26 +434,6 @@ function injectPlayerStyles() {
             display: none;
         }
 
-        /* Specific styling for the select dropdown */
-        .voxlocal-setting-control select {
-            width: 100%;
-            padding: 6px 8px;
-            border: 1px solid #dee2e6;
-            border-radius: 4px;
-            font-size: 13px;
-            background: white;
-            box-sizing: border-box;
-        }
-
-        /* Specific styling for the range slider */
-        .voxlocal-setting-control input[type="range"] {
-            width: 100%;
-            padding: 6px 0;
-            border: none;
-            background: transparent;
-            box-sizing: border-box;
-        }
-
         .setting-note {
             display: block;
             margin-top: 2px;
@@ -491,14 +471,17 @@ function setupEventListeners() {
         updateSpeedDisplay(event.target.value);
     });
 
-    // Speed slider mouseup - hide slider after interaction
-    speedSlider.addEventListener('mouseup', () => {
+    // Speed slider pointerup - hide slider after interaction (works for mouse and touch)
+    speedSlider.addEventListener('pointerup', () => {
         hideAllSettingControls();
     });
 
-    // Click outside to close controls
-    document.addEventListener('click', (event) => {
-        if (!floatingPlayer.contains(event.target)) {
+    // Click on floating player to close controls when clicking outside setting displays
+    floatingPlayer.addEventListener('click', (event) => {
+        // Only hide controls if clicking on the player itself or its direct children,
+        // not on the setting displays (which have their own click handlers)
+        const target = event.target;
+        if (!target.closest('.voxlocal-setting-display')) {
             hideAllSettingControls();
         }
     });
