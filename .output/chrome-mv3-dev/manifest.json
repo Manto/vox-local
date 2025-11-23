@@ -1,0 +1,58 @@
+{
+  "manifest_version": 3,
+  "name": "VoxLocal",
+  "description": "High-quality text-to-speech without using external APIs. Keep all data local and private. Built upon Kokoro.js",
+  "version": "1.0.0",
+  "icons": {
+    "16": "icons/icon_16x16.png",
+    "48": "icons/icon_48x48.png",
+    "128": "icons/icon_128x128_2.png"
+  },
+  "homepage_url": "https://github.com/Manto/vox-local",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "contextMenus",
+    "storage",
+    "unlimitedStorage",
+    "tabs"
+  ],
+  "minimum_chrome_version": "92",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval' http://localhost:3000;",
+    "sandbox": "script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:3000; sandbox allow-scripts allow-forms allow-popups allow-modals; child-src 'self';"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icons/icon_16x16.png",
+      "48": "icons/icon_48x48.png",
+      "128": "icons/icon_128x128_2.png"
+    },
+    "default_title": "VoxLocal - Text to Speech in your browser"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "icons/*.png"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
+  "commands": {
+    "wxt:reload-extension": {
+      "description": "Reload the extension during development",
+      "suggested_key": {
+        "default": "Alt+R"
+      }
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "host_permissions": [
+    "<all_urls>",
+    "http://localhost/*"
+  ]
+}

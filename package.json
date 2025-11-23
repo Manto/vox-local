@@ -3,10 +3,13 @@
   "version": "1.0.0",
   "description": "High-quality text-to-speech Chrome extension built upon Kokoro.js - 82M parameter TTS model running entirely in the browser",
   "scripts": {
-    "build": "webpack --mode production",
-    "build:dev": "webpack",
-    "build:release": "npm run build && zip -r voxlocal-extension-v${npm_package_version}.zip build/",
-    "dev": "webpack --watch",
+    "dev": "wxt", 
+    "dev:firefox": "wxt -b firefox", 
+    "build": "wxt build", 
+    "build:firefox": "wxt build -b firefox", 
+    "zip": "wxt zip", 
+    "zip:firefox": "wxt zip -b firefox", 
+    "postinstall": "wxt prepare",
     "test": "jest",
     "test:watch": "jest --watch"
   },
@@ -15,24 +18,26 @@
     "transform": {
       "^.+\\.js$": "babel-jest"
     },
-    "moduleFileExtensions": ["js", "json"],
-    "testMatch": ["**/tests/**/*.test.js"],
+    "moduleFileExtensions": [
+      "js",
+      "json"
+    ],
+    "testMatch": [
+      "**/tests/**/*.test.js"
+    ],
     "transformIgnorePatterns": [
       "node_modules/(?!(kokoro-js|@huggingface)/)"
     ]
   },
   "type": "module",
-  "author": "Xenova",
+  "author": "Shawn Chiao",
   "license": "MIT",
   "devDependencies": {
     "@babel/core": "^7.28.5",
     "@babel/preset-env": "^7.28.5",
     "babel-jest": "^29.7.0",
-    "copy-webpack-plugin": "^11.0.0",
-    "html-webpack-plugin": "^5.5.1",
     "jest": "^29.7.0",
-    "webpack": "^5.79.0",
-    "webpack-cli": "^6.0.1"
+    "wxt": "^0.20.11"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.7.6",
