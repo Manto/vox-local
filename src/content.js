@@ -504,10 +504,8 @@ function setupEventListeners() {
     });
 
     // Prevent clicks inside controls from closing them
-    document.querySelectorAll('.voxlocal-setting-control').forEach(control => floatingPlayer.querySelectorAll('.voxlocal-setting-control').forEach(control => {
-        control.addEventListener('click', (event) => {
-            event.stopPropagation();
-        });
+    document.querySelectorAll('.voxlocal-setting-control').forEach(control => {
+        control.addEventListener('click', event => event.stopPropagation());
     });
 
     // Play/Stop button
