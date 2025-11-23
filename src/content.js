@@ -5,6 +5,13 @@
 let floatingPlayer = null;
 let isPlayerVisible = false;
 
+// Drag state
+let isDragging = false;
+let dragStartX = 0;
+let dragStartY = 0;
+let playerStartX = 0;
+let playerStartY = 0;
+
 // Global audio element for current playback
 let currentAudio = null;
 // Streaming TTS state
@@ -249,6 +256,7 @@ function injectPlayerStyles() {
         #voxlocal-floating-player {
             position: fixed;
             top: 20px;
+            left: auto;
             right: 20px;
             width: 280px;
             background: white;
@@ -443,6 +451,14 @@ function setupEventListeners() {
     // Close button
     floatingPlayer.querySelector('.voxlocal-close-btn').addEventListener('click', hideFloatingPlayer);
 
+    // Drag functionality for the header
+    const header = floatingPlayer.querySelector('.voxlocal-header');
+    header.style.cursor = 'move';
+
+    header.addEventListener('pointerdown', startDrag);
+    document.addEventListener('pointermove', drag);
+    document.addEventListener('pointerup', endDrag);
+
     // Voice display click - toggle dropdown
     const voiceDisplay = document.getElementById('voxlocal-voice-display');
     const voiceSelect = document.getElementById('voxlocal-voice-select');
@@ -494,6 +510,48 @@ function setupEventListeners() {
         hideAllSettingControls();
     });
     speedSlider.addEventListener('change', saveSettings);
+}
+
+// Drag functionality
+function startDrag(event) {
+    if (event.target.closest('.voxlocal-close-btn')) return; // Don't drag if clicking close button
+
+    isDragging = true;
+    dragStartX = event.clientX;
+    dragStartY = event.clientY;
+
+    const rect = floatingPlayer.getBoundingClientRect();
+    playerStartX = rect.left;
+    playerStartY = rect.top;
+
+    // Prevent text selection during drag
+    event.preventDefault();
+    document.body.style.userSelect = 'none';
+}
+
+function drag(event) {
+    if (!isDragging) return;
+
+    const deltaX = event.clientX - dragStartX;
+    const deltaY = event.clientY - dragStartY;
+
+    const newX = playerStartX + deltaX;
+    const newY = playerStartY + deltaY;
+
+    // Keep player within viewport bounds
+    const maxX = window.innerWidth - floatingPlayer.offsetWidth;
+    const maxY = window.innerHeight - floatingPlayer.offsetHeight;
+
+    floatingPlayer.style.left = Math.max(0, Math.min(newX, maxX)) + 'px';
+    floatingPlayer.style.top = Math.max(0, Math.min(newY, maxY)) + 'px';
+    floatingPlayer.style.right = 'auto'; // Clear any right positioning
+}
+
+function endDrag() {
+    if (!isDragging) return;
+
+    isDragging = false;
+    document.body.style.userSelect = ''; // Restore text selection
 }
 
 // Toggle visibility of setting control (dropdown or slider)
