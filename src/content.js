@@ -196,7 +196,6 @@ function createFloatingPlayer() {
         </div>
         <div class="voxlocal-status-section">
             <div id="voxlocal-status" class="status-badge ready">Ready</div>
-            <div id="voxlocal-model-status" class="model-status">Model not loaded</div>
         </div>
         <div class="voxlocal-controls">
             <button id="voxlocal-play-stop-btn" class="voxlocal-btn voxlocal-btn-primary" title="Play selection or page">
@@ -314,12 +313,6 @@ function injectPlayerStyles() {
         .status-badge.loading { background-color: #ffc107; color: black; }
         .status-badge.speaking { background-color: #007bff; color: white; }
         .status-badge.error { background-color: #dc3545; color: white; }
-
-        .model-status {
-            font-size: 11px;
-            color: #6c757d;
-            text-align: center;
-        }
 
         .voxlocal-controls {
             display: flex;
@@ -571,15 +564,11 @@ function queryModelStatus() {
     chrome.runtime.sendMessage(message, (response) => {
         if (chrome.runtime.lastError) {
             console.error('[VoxLocal] Error querying model status:', chrome.runtime.lastError);
-            updateModelStatus('Model status unknown');
             return;
         }
 
         if (response && response.loaded) {
             const modelName = response.modelName ? ` (${response.modelName})` : '';
-            updateModelStatus(`Model loaded${modelName}`);
-        } else {
-            updateModelStatus('Model will load on first use');
         }
     });
 }
@@ -775,13 +764,6 @@ function updateStatus(message, type = 'ready') {
     statusElement.classList.add(type);
 }
 
-// Update model status display
-function updateModelStatus(message) {
-    const modelStatusElement = document.getElementById('voxlocal-model-status');
-    if (modelStatusElement) {
-        modelStatusElement.textContent = message;
-    }
-}
 
 // Reset streaming state
 function resetStreamingState() {
