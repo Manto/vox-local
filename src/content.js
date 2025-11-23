@@ -204,9 +204,12 @@ function createFloatingPlayer() {
             </button>
         </div>
         <div class="voxlocal-settings">
-            <div class="setting-group">
-                <label for="voxlocal-voice-select">Voice:</label>
-                <select id="voxlocal-voice-select">
+            <div class="voxlocal-setting-item">
+                <div class="voxlocal-setting-display" id="voxlocal-voice-display">
+                    <div class="setting-value">Heart</div>
+                    <div class="setting-label">voice</div>
+                </div>
+                <select id="voxlocal-voice-select" class="voxlocal-setting-control hidden">
                     <option value="af_heart">Heart (Female)</option>
                     <option value="af_bella">Bella (Female)</option>
                     <option value="am_michael">Michael (Male)</option>
@@ -215,9 +218,12 @@ function createFloatingPlayer() {
                     <option value="bm_george">George (British Male)</option>
                 </select>
             </div>
-            <div class="setting-group">
-                <label for="voxlocal-speed-slider">Speed: <span id="voxlocal-speed-value">1.0</span>x</label>
-                <input type="range" id="voxlocal-speed-slider" min="0.5" max="2.0" step="0.1" value="1.0">
+            <div class="voxlocal-setting-item">
+                <div class="voxlocal-setting-display" id="voxlocal-speed-display">
+                    <div class="setting-value">1.0x</div>
+                    <div class="setting-label">speed</div>
+                </div>
+                <input type="range" id="voxlocal-speed-slider" class="voxlocal-setting-control hidden" min="0.75" max="1.25" step="0.05" value="1.0">
             </div>
         </div>
     `;
@@ -363,29 +369,73 @@ function injectPlayerStyles() {
             margin: 0 12px 12px 12px;
             padding-top: 12px;
             border-top: 1px solid #dee2e6;
+            display: flex;
+            gap: 16px;
         }
 
-        .voxlocal-settings h3 {
-            margin: 0 0 12px 0;
-            font-size: 14px;
+        .voxlocal-setting-item {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+        }
+
+        .voxlocal-setting-display {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 6px;
+            transition: background-color 0.2s ease;
+            min-height: 50px;
+            justify-content: center;
+        }
+
+        .voxlocal-setting-display:hover {
+            background-color: #f8f9fa;
+        }
+
+        .setting-value {
+            font-size: 16px;
             font-weight: 600;
             color: #212529;
+            text-align: center;
         }
 
-        .setting-group {
-            margin-bottom: 10px;
+        .setting-label {
+            font-size: 11px;
+            color: #6c757d;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 2px;
+            text-align: center;
         }
 
-        .setting-group label {
-            display: block;
-            margin-bottom: 4px;
+        .voxlocal-setting-control {
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 140px;
+            padding: 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
             font-size: 13px;
-            font-weight: 500;
-            color: #212529;
+            background: white;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 10001;
+            box-sizing: border-box;
+            margin-top: 4px;
         }
 
-        .setting-group select,
-        .setting-group input[type="range"] {
+        .voxlocal-setting-control.hidden {
+            display: none;
+        }
+
+        /* Specific styling for the select dropdown */
+        .voxlocal-setting-control select {
             width: 100%;
             padding: 6px 8px;
             border: 1px solid #dee2e6;
@@ -395,8 +445,13 @@ function injectPlayerStyles() {
             box-sizing: border-box;
         }
 
-        .setting-group input[type="checkbox"] {
-            margin-right: 6px;
+        /* Specific styling for the range slider */
+        .voxlocal-setting-control input[type="range"] {
+            width: 100%;
+            padding: 6px 0;
+            border: none;
+            background: transparent;
+            box-sizing: border-box;
         }
 
         .setting-note {
@@ -415,21 +470,89 @@ function setupEventListeners() {
     // Close button
     floatingPlayer.querySelector('.voxlocal-close-btn').addEventListener('click', hideFloatingPlayer);
 
-    // Speed slider
+    // Voice display click - toggle dropdown
+    const voiceDisplay = document.getElementById('voxlocal-voice-display');
+    const voiceSelect = document.getElementById('voxlocal-voice-select');
+    voiceDisplay.addEventListener('click', (event) => {
+        event.stopPropagation();
+        toggleSettingControl(voiceSelect);
+    });
+
+    // Speed display click - toggle slider
+    const speedDisplay = document.getElementById('voxlocal-speed-display');
     const speedSlider = document.getElementById('voxlocal-speed-slider');
-    const speedValue = document.getElementById('voxlocal-speed-value');
+    speedDisplay.addEventListener('click', (event) => {
+        event.stopPropagation();
+        toggleSettingControl(speedSlider);
+    });
+
+    // Speed slider input - update display
     speedSlider.addEventListener('input', (event) => {
-        speedValue.textContent = `${event.target.value}x`;
+        updateSpeedDisplay(event.target.value);
+    });
+
+    // Speed slider mouseup - hide slider after interaction
+    speedSlider.addEventListener('mouseup', () => {
+        hideAllSettingControls();
+    });
+
+    // Click outside to close controls
+    document.addEventListener('click', (event) => {
+        if (!floatingPlayer.contains(event.target)) {
+            hideAllSettingControls();
+        }
+    });
+
+    // Prevent clicks inside controls from closing them
+    document.querySelectorAll('.voxlocal-setting-control').forEach(control => {
+        control.addEventListener('click', (event) => {
+            event.stopPropagation();
+        });
     });
 
     // Play/Stop button
     document.getElementById('voxlocal-play-stop-btn').addEventListener('click', togglePlayStop);
 
     // Settings change listeners
-    const voiceSelect = document.getElementById('voxlocal-voice-select');
-
-    voiceSelect.addEventListener('change', saveSettings);
+    voiceSelect.addEventListener('change', () => {
+        updateVoiceDisplay();
+        saveSettings();
+        hideAllSettingControls();
+    });
     speedSlider.addEventListener('change', saveSettings);
+}
+
+// Toggle visibility of setting control (dropdown or slider)
+function toggleSettingControl(controlElement) {
+    const isHidden = controlElement.classList.contains('hidden');
+    // Hide all controls first
+    hideAllSettingControls();
+    // Show the clicked control if it was hidden
+    if (isHidden) {
+        controlElement.classList.remove('hidden');
+    }
+}
+
+// Hide all setting controls
+function hideAllSettingControls() {
+    document.querySelectorAll('.voxlocal-setting-control').forEach(el => {
+        el.classList.add('hidden');
+    });
+}
+
+// Update voice display with current selected voice name
+function updateVoiceDisplay() {
+    const voiceSelect = document.getElementById('voxlocal-voice-select');
+    const voiceDisplay = document.getElementById('voxlocal-voice-display').querySelector('.setting-value');
+    const selectedOption = voiceSelect.options[voiceSelect.selectedIndex];
+    const voiceName = selectedOption.text.split(' (')[0]; // Get name before parentheses
+    voiceDisplay.textContent = voiceName;
+}
+
+// Update speed display
+function updateSpeedDisplay(value) {
+    const speedDisplay = document.getElementById('voxlocal-speed-display').querySelector('.setting-value');
+    speedDisplay.textContent = `${value}x`;
 }
 
 // Get selected text from the page
@@ -791,7 +914,10 @@ async function loadSettings() {
         // Apply saved settings with defaults
         document.getElementById('voxlocal-voice-select').value = settings.voice || 'af_heart';
         document.getElementById('voxlocal-speed-slider').value = settings.speed || 1.0;
-        document.getElementById('voxlocal-speed-value').textContent = `${document.getElementById('voxlocal-speed-slider').value}x`;
+
+        // Update displays
+        updateVoiceDisplay();
+        updateSpeedDisplay(document.getElementById('voxlocal-speed-slider').value);
 
         console.log('[VoxLocal] Settings loaded:', settings);
     } catch (error) {
@@ -799,7 +925,8 @@ async function loadSettings() {
         // Set defaults if loading fails
         document.getElementById('voxlocal-voice-select').value = 'af_heart';
         document.getElementById('voxlocal-speed-slider').value = 1.0;
-        document.getElementById('voxlocal-speed-value').textContent = '1.0x';
+        updateVoiceDisplay();
+        updateSpeedDisplay(1.0);
     }
 }
 
