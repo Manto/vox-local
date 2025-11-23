@@ -28,8 +28,8 @@
   "minimum_chrome_version": "92",
   "action": {
     "default_icon": {
-      "16": "icons/icon_64x64.png",
-      "48": "icons/icon_64x64.png",
+      "16": "icons/icon_16x16.png",
+      "48": "icons/icon_48x48.png",
       "128": "icons/icon_128x128_2.png"
       },
     "default_title": "VoxLocal - Text to Speech in your browser"
@@ -38,8 +38,8 @@
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'"
   },
   "icons": {
-    "16": "icons/icon_64x64.png",
-    "48": "icons/icon_64x64.png",
+    "16": "icons/icon_16x16.png",
+    "48": "icons/icon_48x48.png",
     "128": "icons/icon_128x128_2.png"
   }
 }
