@@ -940,6 +940,8 @@ function playNextAudioChunk() {
             // Validate that this chunk belongs to the current streaming request
             if (chunk.requestId !== currentStreamingRequestId) {
                 console.log(`[VoxLocal] 🚫 Skipping stale chunk ${chunk.chunkIndex + 1} - wrong request ID (expected: ${currentStreamingRequestId}, got: ${chunk.requestId})`);
+                // Continue draining the queue to process any buffered valid chunks
+                playNextAudioChunk();
                 return;
             }
 
