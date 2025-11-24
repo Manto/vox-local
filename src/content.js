@@ -22,7 +22,19 @@ let streamChunksReceived = 0;
 let totalStreamChunks = 0;
 let nextExpectedChunkIndex = 0; // Track the next chunk index we should play
 
-// Helper function to create Audio from base64 data
+// Global AudioContext for Web Audio API
+let audioContext = null;
+
+// Initialize AudioContext (must be done after user interaction)
+function initAudioContext() {
+    if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        console.log('[VoxLocal] AudioContext initialized');
+    }
+    return audioContext;
+}
+
+// Helper function to create Audio using Web Audio API (bypasses CSP entirely)
 function createAudioFromBase64(base64, { speed = 1 } = {}) {
     try {
         // Convert base64 back to binary data
@@ -33,15 +45,28 @@ function createAudioFromBase64(base64, { speed = 1 } = {}) {
             uint8Array[i] = audioData.charCodeAt(i);
         }
 
-        // Create blob and object URL
-        const blob = new Blob([uint8Array], { type: 'audio/wav' });
-        const audioUrl = URL.createObjectURL(blob);
+        // Initialize AudioContext if needed
+        const context = initAudioContext();
 
-        // Create and configure audio element
-        const audio = new Audio(audioUrl);
-        audio.playbackRate = speed;
+        // Create a promise that resolves with audio playback controls
+        const playPromise = context.decodeAudioData(arrayBuffer.slice(0)).then(audioBuffer => {
+            const source = context.createBufferSource();
+            source.buffer = audioBuffer;
+            source.playbackRate.value = speed;
+            source.connect(context.destination);
 
-        return { audio, audioUrl };
+            return {
+                source,
+                start: () => source.start(0),
+                stop: () => source.stop(),
+                onended: null
+            };
+        });
+
+        return {
+            playPromise,
+            audioUrl: null // No URL needed with Web Audio API
+        };
     } catch (error) {
         console.error('[VoxLocal] Error creating audio from base64:', error);
         throw error;
@@ -754,7 +779,11 @@ function stopPlayback() {
     console.log('[VoxLocal] Stop button clicked');
     if (currentAudio) {
         console.log('[VoxLocal] Stopping current audio playback');
-        currentAudio.pause();
+        try {
+            currentAudio.stop();
+        } catch (error) {
+            // Audio might already be stopped, ignore error
+        }
         currentAudio = null;
     }
 
@@ -770,40 +799,33 @@ function stopPlayback() {
     updateStatus('Stopped', 'ready');
 }
 
-// Play audio from base64 data
+// Play audio from base64 data using Web Audio API
 function playAudio(response) {
     try {
         console.log('[VoxLocal] Converting base64 audio to playable format...');
-        const { audio, audioUrl } = createAudioFromBase64(response.audio, { speed: response.speed || 1 });
-        currentAudio = audio;
-        console.log(`[VoxLocal] Audio element created with playback rate: ${currentAudio.playbackRate}x`);
+        const { playPromise } = createAudioFromBase64(response.audio, { speed: response.speed || 1 });
 
-        currentAudio.onloadedmetadata = () => {
-            console.log(`[VoxLocal] Audio loaded - duration: ${currentAudio.duration.toFixed(2)}s`);
+        playPromise.then(audioControls => {
+            currentAudio = audioControls;
+            console.log(`[VoxLocal] Web Audio buffer created with playback rate: ${audioControls.source.playbackRate.value}x`);
+
+            // Set up event handlers
+            audioControls.source.onended = () => {
+                console.log('[VoxLocal] Audio playback completed successfully');
+                currentAudio = null;
+                resetButtons();
+                updateStatus('Ready', 'ready');
+            };
+
+            // Update status and start playback
             updateStatus('Speaking', 'speaking');
             updateButtonStates();
-        };
 
-        currentAudio.onended = () => {
-            console.log('[VoxLocal] Audio playback completed successfully');
-            URL.revokeObjectURL(audioUrl);
-            currentAudio = null;
-            resetButtons();
-            updateStatus('Ready', 'ready');
-        };
+            console.log('[VoxLocal] Starting audio playback...');
+            audioControls.start();
 
-        currentAudio.onerror = (error) => {
-            console.error('[VoxLocal] Audio playback error:', currentAudio?.error?.message || 'Unknown error');
-            URL.revokeObjectURL(audioUrl);
-            currentAudio = null;
-            resetButtons();
-            updateStatus('Error', 'error');
-        };
-
-        console.log('[VoxLocal] Starting audio playback...');
-        currentAudio.play().catch((error) => {
-            console.error('[VoxLocal] Audio play failed:', error.message);
-            URL.revokeObjectURL(audioUrl);
+        }).catch((error) => {
+            console.error('[VoxLocal] Web Audio playback failed:', error.message);
             currentAudio = null;
             resetButtons();
             updateStatus('Error: ' + error.message, 'error');
@@ -905,32 +927,25 @@ function playNextAudioChunk() {
     updateStatus(`Playing chunk ${chunk.chunkIndex + 1}/${chunk.totalChunks} (streaming)`, 'speaking');
 
     try {
-        const { audio, audioUrl } = createAudioFromBase64(chunk.audio, { speed: chunk.speed || 1 });
-        currentAudio = audio;
+        const { playPromise } = createAudioFromBase64(chunk.audio, { speed: chunk.speed || 1 });
 
-        currentAudio.onended = () => {
-            console.log(`[VoxLocal] ✅ Chunk ${chunk.chunkIndex + 1}/${chunk.totalChunks} playback COMPLETED`);
-            URL.revokeObjectURL(audioUrl);
-            currentAudio = null;
-            // Play next chunk
-            console.log(`[VoxLocal] 🔄 Calling playNextAudioChunk after chunk ${chunk.chunkIndex + 1} completion`);
-            playNextAudioChunk();
-        };
+        playPromise.then(audioControls => {
+            currentAudio = audioControls;
 
-        currentAudio.onerror = (error) => {
-            console.error('[VoxLocal] Audio chunk playback error:', error);
-            URL.revokeObjectURL(audioUrl);
-            currentAudio = null;
-            resetStreamingState();
-            updateStatus('Error playing audio chunk', 'error');
-        };
+            audioControls.source.onended = () => {
+                console.log(`[VoxLocal] ✅ Chunk ${chunk.chunkIndex + 1}/${chunk.totalChunks} playback COMPLETED`);
+                currentAudio = null;
+                // Play next chunk
+                console.log(`[VoxLocal] 🔄 Calling playNextAudioChunk after chunk ${chunk.chunkIndex + 1} completion`);
+                playNextAudioChunk();
+            };
 
-        console.log(`[VoxLocal] ▶️ Starting chunk ${chunk.chunkIndex + 1} audio playback...`);
-        currentAudio.play().then(() => {
+            console.log(`[VoxLocal] ▶️ Starting chunk ${chunk.chunkIndex + 1} audio playback...`);
+            audioControls.start();
             console.log(`[VoxLocal] 🎧 Chunk ${chunk.chunkIndex + 1} STARTED playing successfully`);
+
         }).catch((error) => {
             console.error(`[VoxLocal] ❌ Audio chunk ${chunk.chunkIndex + 1} play FAILED:`, error.message);
-            URL.revokeObjectURL(audioUrl);
             currentAudio = null;
             resetStreamingState();
             updateStatus('Error: ' + error.message, 'error');
