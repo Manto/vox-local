@@ -21,6 +21,7 @@ let currentStreamingRequestId = null; // Track the current streaming request ID
 let streamChunksReceived = 0;
 let totalStreamChunks = 0;
 let nextExpectedChunkIndex = 0; // Track the next chunk index we should play
+let isDecodingChunk = false; // Prevent concurrent chunk decoding
 
 // Global AudioContext for Web Audio API
 let audioContext = null;
@@ -134,7 +135,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 updateStatus(`Processing chunks: ${streamChunksReceived}/${totalStreamChunks} received`, 'loading');
 
                 // Start or resume playback when no audio is currently playing
-                if (!currentAudio && audioChunks[nextExpectedChunkIndex]) {
+                if (!currentAudio && audioChunks[nextExpectedChunkIndex] && !isDecodingChunk) {
                     console.log(`[VoxLocal] ▶️ ${nextExpectedChunkIndex === 0 ? 'Starting' : 'Resuming'} playback - chunk ${nextExpectedChunkIndex + 1} available`);
                     playNextAudioChunk();
                 }
@@ -271,7 +272,7 @@ function createFloatingPlayer() {
     // Load settings and initialize
     loadSettings();
     updateStatus('Ready');
-    updateButtonText(); // Set initial button text based on current selection
+    updateButtonStates(); // Set initial button state and selection listener
     queryModelStatus();
 }
 
@@ -550,8 +551,7 @@ function setupEventListeners() {
     });
     speedSlider.addEventListener('change', saveSettings);
 
-    // Listen for text selection changes to update button text
-    document.addEventListener('selectionchange', updateButtonText);
+    // Selection change listener is managed by updateButtonStates() based on streaming state
 }
 
 // Drag functionality
@@ -841,7 +841,7 @@ function playAudio(response) {
 // Update button text based on current selection
 function updateButtonText() {
     const playStopBtn = document.getElementById('voxlocal-play-stop-btn');
-    if (!playStopBtn || isStreaming) return; // Don't update if streaming
+    if (!playStopBtn) return;
 
     const selectedText = getSelectedText();
     const buttonText = selectedText && selectedText.trim() !== '' ? 'Play Selection' : 'Play Page';
@@ -883,6 +883,7 @@ function resetStreamingState() {
     isStreaming = false;
     streamChunksReceived = 0;
     totalStreamChunks = 0;
+    isDecodingChunk = false; // Clear decoding flag
     updateButtonStates();
 }
 
@@ -890,15 +891,18 @@ function resetStreamingState() {
 function updateButtonStates() {
     const playStopBtn = document.getElementById('voxlocal-play-stop-btn');
     if (isStreaming) {
-        // During streaming, change to stop mode
+        // During streaming, change to stop mode and disable selection updates
         playStopBtn.disabled = false;
         const iconPath = chrome.runtime.getURL('icons/voxlocal-stop.png');
         playStopBtn.innerHTML = `<img src="${iconPath}" class="icon" alt="Stop"> Stop`;
         playStopBtn.title = 'Stop speaking';
         playStopBtn.className = 'voxlocal-btn voxlocal-btn-danger';
+        // Remove selection change listener during streaming to keep button as "Stop"
+        document.removeEventListener('selectionchange', updateButtonText);
     } else {
-        // Normal state - play mode
+        // Normal state - play mode, re-enable selection updates
         resetButtons();
+        document.addEventListener('selectionchange', updateButtonText);
     }
 }
 
@@ -927,9 +931,18 @@ function playNextAudioChunk() {
     updateStatus(`Playing chunk ${chunk.chunkIndex + 1}/${chunk.totalChunks} (streaming)`, 'speaking');
 
     try {
+        isDecodingChunk = true; // Prevent concurrent decoding
         const { playPromise } = createAudioFromBase64(chunk.audio, { speed: chunk.speed || 1 });
 
         playPromise.then(audioControls => {
+            isDecodingChunk = false; // Clear decoding flag
+
+            // Validate that this chunk belongs to the current streaming request
+            if (chunk.requestId !== currentStreamingRequestId) {
+                console.log(`[VoxLocal] 🚫 Skipping stale chunk ${chunk.chunkIndex + 1} - wrong request ID (expected: ${currentStreamingRequestId}, got: ${chunk.requestId})`);
+                return;
+            }
+
             currentAudio = audioControls;
 
             audioControls.source.onended = () => {
@@ -946,6 +959,7 @@ function playNextAudioChunk() {
 
         }).catch((error) => {
             console.error(`[VoxLocal] ❌ Audio chunk ${chunk.chunkIndex + 1} play FAILED:`, error.message);
+            isDecodingChunk = false; // Clear decoding flag on error
             currentAudio = null;
             resetStreamingState();
             updateStatus('Error: ' + error.message, 'error');
@@ -953,6 +967,7 @@ function playNextAudioChunk() {
 
     } catch (error) {
         console.error('[VoxLocal] Error creating audio chunk:', error);
+        isDecodingChunk = false; // Clear decoding flag on error
         resetStreamingState();
         updateStatus('Error: ' + error.message, 'error');
     }
