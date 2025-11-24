@@ -6,28 +6,35 @@
     "build": "wxt build",
     "build:chrome": "wxt build --browser chrome",
     "build:firefox": "wxt build --browser firefox",
-    "build:all": "wxt build --browser chrome && wxt build --browser firefox",
+    "build:all": "npm run build:chrome && npm run build:firefox",
     "build:dev": "wxt build --mode development",
-    "build:dev:chrome": "wxt build --mode development --browser chrome",
-    "build:dev:firefox": "wxt build --mode development --browser firefox",
-    "build:release": "npm run build:all && zip -r voxlocal-chrome-v${npm_package_version}.zip .output/chrome/ && zip -r voxlocal-firefox-v${npm_package_version}.zip .output/firefox/",
-    "dev": "wxt",
-    "dev:chrome": "wxt --browser chrome",
-    "dev:firefox": "wxt --browser firefox",
+    "build:release": "npm run build:all && wxt zip --browser chrome && wxt zip --browser firefox",
+    "dev": "wxt dev",
+    "dev:chrome": "wxt dev --browser chrome",
+    "dev:firefox": "wxt dev --browser firefox",
     "test": "jest",
     "test:watch": "jest --watch"
   },
   "jest": {
     "testEnvironment": "node",
     "transform": {
-      "^.+\\.js$": "babel-jest"
+      "^.+\\.(js|ts)$": ["babel-jest", {
+        "presets": [
+          ["@babel/preset-env", {
+            "targets": {
+              "node": "current"
+            }
+          }]
+        ]
+      }]
     },
     "moduleFileExtensions": [
       "js",
+      "ts",
       "json"
     ],
     "testMatch": [
-      "**/tests/**/*.test.js"
+      "**/tests/**/*.test.(js|ts)"
     ],
     "transformIgnorePatterns": [
       "node_modules/(?!(kokoro-js|@huggingface)/)"
@@ -37,15 +44,9 @@
   "author": "Xenova",
   "license": "MIT",
   "devDependencies": {
-    "@babel/core": "^7.28.5",
-    "@babel/preset-env": "^7.28.5",
-    "babel-jest": "^29.7.0",
-    "copy-webpack-plugin": "^13.0.1",
-    "html-webpack-plugin": "^5.6.5",
+    "@wxt-dev/module-react": "^1.0.0",
     "jest": "^29.7.0",
     "typescript": "^5.0.0",
-    "webpack": "^5.103.0",
-    "webpack-cli": "^6.0.1",
     "wxt": "^0.20.11"
   },
   "dependencies": {
