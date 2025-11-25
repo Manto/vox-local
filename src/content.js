@@ -22,6 +22,7 @@ let streamChunksReceived = 0;
 let totalStreamChunks = 0;
 let nextExpectedChunkIndex = 0; // Track the next chunk index we should play
 let isDecodingChunk = false; // Prevent concurrent chunk decoding
+let streamingComplete = false; // Track if streaming has finished from background
 
 // Global AudioContext for Web Audio API
 let audioContext = null;
@@ -147,13 +148,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
                 // Only process completion if it matches the current streaming request
                 if (message.requestId === currentStreamingRequestId) {
-                    isStreaming = false;
-                    currentStreamingRequestId = null;
+                    streamingComplete = true; // Mark that streaming has finished from background
+                    isStreaming = false; // But keep currentStreamingRequestId until all chunks are played
 
-                    // If no chunks are currently playing, update status
-                    if (!currentAudio) {
+                    // If no chunks are currently playing and no more chunks to play, update status
+                    if (!currentAudio && nextExpectedChunkIndex >= totalStreamChunks) {
                         updateStatus('Ready', 'ready');
                         updateButtonStates();
+                        resetStreamingState(); // Now safe to reset since all chunks are done
                     }
                 } else {
                     console.log(`[VoxLocal] 🚫 Ignoring stream_complete - wrong request ID (expected: ${currentStreamingRequestId}, got: ${message.requestId})`);
@@ -685,6 +687,7 @@ function sendStreamingTTS(text, voice, speed) {
     isStreaming = true;
     streamChunksReceived = 0;
     totalStreamChunks = 0;
+    streamingComplete = false; // Reset streaming complete flag
 
     // Update button states for streaming
     updateButtonStates();
@@ -884,6 +887,7 @@ function resetStreamingState() {
     streamChunksReceived = 0;
     totalStreamChunks = 0;
     isDecodingChunk = false; // Clear decoding flag
+    streamingComplete = false; // Reset streaming complete flag
     updateButtonStates();
 }
 
@@ -910,13 +914,14 @@ function updateButtonStates() {
 function playNextAudioChunk() {
     // Check if we have the next expected chunk
     if (!audioChunks[nextExpectedChunkIndex]) {
-        if (isStreaming) {
+        if (isStreaming || !streamingComplete) {
             updateStatus('Streaming: waiting for next chunk...', 'loading');
         } else {
             // Streaming complete, check if we have all chunks
             if (nextExpectedChunkIndex >= totalStreamChunks) {
                 updateStatus('Ready', 'ready');
                 resetButtons();
+                resetStreamingState(); // Now safe to reset since all chunks are done
             }
         }
         return;
