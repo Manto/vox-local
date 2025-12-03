@@ -325,9 +325,19 @@ async function sendQueuedChunks(requestId, tabId) {
     console.log(`[VoxLocal] All queued messages sent for request ${requestId}`);
 }
 
+// Actions handled by this message listener
+const HANDLED_ACTIONS = new Set([
+    'speak',
+    'speak_stream',
+    'cancel_stream',
+    'query_model_status',
+    'request_pending_chunks',
+    'chunk_played_back'
+]);
+
 // Listen for messages from the UI, process it, and send the result back.
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.action !== 'speak' && message.action !== 'speak_stream' && message.action !== 'cancel_stream' && message.action !== 'query_model_status' && message.action !== 'request_pending_chunks' && message.action !== 'chunk_played_back') return; // Ignore messages that are not meant for speech generation or status queries.
+    if (!HANDLED_ACTIONS.has(message.action)) return; // Ignore messages that are not meant for speech generation or status queries.
 
     console.log(`[VoxLocal] Received ${message.action} request from ${sender.url || 'popup'}`);
 
@@ -540,10 +550,12 @@ chrome.runtime.onSuspend.addListener(() => {
         activeStreamingRequest = null;
     }
 
-    // Reset playback tracking
+    // Reset playback tracking and resume any waiting processing (so it can exit cleanly)
     lastPlayedBackChunkIndex = -1;
     if (processingResumeCallback) {
+        const callback = processingResumeCallback;
         processingResumeCallback = null;
+        callback();
     }
 });
 //////////////////////////////////////////////////////////////
