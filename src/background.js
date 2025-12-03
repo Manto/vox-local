@@ -3,6 +3,9 @@
 import { KokoroTTS } from 'kokoro-js';
 import { splitTextIntoSentences } from './utils/textSplitter.js';
 
+// Configuration: Maximum number of chunks to process ahead of playback
+const MAX_CHUNKS_AHEAD = 5;
+
 // Note: ONNX Runtime warnings cannot be suppressed from the extension.
 // Any suppression should be configured via KokoroTTS/kokoro-js initialization options
 // or by upgrading kokoro-js if those features become available.
@@ -115,9 +118,45 @@ const generateSpeech = async (text, voice = 'af_heart', speed = 1, dtype = 'fp32
     };
 };
 
+// Helper function to wait until we're not too far ahead of playback
+function shouldWaitForPlayback(currentChunkIndex) {
+    const chunksAhead = currentChunkIndex - lastPlayedBackChunkIndex;
+    return chunksAhead > MAX_CHUNKS_AHEAD;
+}
+
+// Promise that resolves when we can continue processing
+function waitForPlaybackToCatchUp(currentChunkIndex) {
+    return new Promise((resolve) => {
+        if (!shouldWaitForPlayback(currentChunkIndex)) {
+            resolve();
+            return;
+        }
+        console.log(`[VoxLocal] ⏸️ Pausing processing - ${currentChunkIndex - lastPlayedBackChunkIndex} chunks ahead of playback (max: ${MAX_CHUNKS_AHEAD})`);
+        processingResumeCallback = resolve;
+    });
+}
+
+// Called when a chunk finishes playback to potentially resume processing
+function onChunkPlayedBack(chunkIndex) {
+    lastPlayedBackChunkIndex = Math.max(lastPlayedBackChunkIndex, chunkIndex);
+    console.log(`[VoxLocal] 🎵 Chunk ${chunkIndex + 1} playback completed, lastPlayedBackChunkIndex: ${lastPlayedBackChunkIndex}`);
+    
+    // Check if we should resume processing
+    if (processingResumeCallback) {
+        const callback = processingResumeCallback;
+        processingResumeCallback = null;
+        console.log(`[VoxLocal] ▶️ Resuming processing - playback caught up`);
+        callback();
+    }
+}
+
 // Streaming TTS function that processes text in chunks and sends audio segments
 const generateStreamingSpeech = async (text, voice = 'af_heart', speed = 1, dtype = 'fp32', device = 'webgpu', requestId, onChunkComplete) => {
     console.log(`[VoxLocal] Starting streaming speech generation for text (${text.length} characters) with voice: ${voice}, speed: ${speed}x, dtype: ${dtype}, device: ${device}`);
+
+    // Reset playback tracking for new streaming request
+    lastPlayedBackChunkIndex = -1;
+    processingResumeCallback = null;
 
     // Split text into manageable chunks
     const textChunks = splitTextIntoSentences(text);
@@ -153,6 +192,15 @@ const generateStreamingSpeech = async (text, voice = 'af_heart', speed = 1, dtyp
         // Check if streaming was cancelled - capture requestId locally to avoid race conditions
         if (!activeStreamingRequest || activeStreamingRequest.id !== requestId || activeStreamingRequest.cancelled) {
             console.log('[VoxLocal] Streaming cancelled by user');
+            break;
+        }
+
+        // Wait if we're too far ahead of playback (check before processing each chunk)
+        await waitForPlaybackToCatchUp(i);
+
+        // Check again after waiting in case streaming was cancelled while waiting
+        if (!activeStreamingRequest || activeStreamingRequest.id !== requestId || activeStreamingRequest.cancelled) {
+            console.log('[VoxLocal] Streaming cancelled by user while waiting for playback');
             break;
         }
 
@@ -238,6 +286,8 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 let activeStreamingRequest = null; // Track active streaming request
 let requestIdCounter = 0;
 let pendingChunks = new Map(); // Queue chunks for each request ID when content script is unavailable
+let lastPlayedBackChunkIndex = -1; // Track the last chunk that finished playback (for pacing processing)
+let processingResumeCallback = null; // Callback to resume processing when playback catches up
 
 // Function to send queued chunks/messages to content script
 async function sendQueuedChunks(requestId, tabId) {
@@ -277,7 +327,7 @@ async function sendQueuedChunks(requestId, tabId) {
 
 // Listen for messages from the UI, process it, and send the result back.
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.action !== 'speak' && message.action !== 'speak_stream' && message.action !== 'cancel_stream' && message.action !== 'query_model_status' && message.action !== 'request_pending_chunks') return; // Ignore messages that are not meant for speech generation or status queries.
+    if (message.action !== 'speak' && message.action !== 'speak_stream' && message.action !== 'cancel_stream' && message.action !== 'query_model_status' && message.action !== 'request_pending_chunks' && message.action !== 'chunk_played_back') return; // Ignore messages that are not meant for speech generation or status queries.
 
     console.log(`[VoxLocal] Received ${message.action} request from ${sender.url || 'popup'}`);
 
@@ -313,6 +363,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             await sendQueuedChunks(requestId, tabId);
             sendResponse({ success: true });
         })();
+        return true;
+    }
+
+    if (message.action === 'chunk_played_back') {
+        // Content script notifies us when a chunk finishes playback
+        const chunkIndex = message.chunkIndex;
+        const requestId = message.requestId;
+        
+        // Only process if it's for the current streaming request
+        if (activeStreamingRequest && activeStreamingRequest.id === requestId) {
+            onChunkPlayedBack(chunkIndex);
+        }
+        sendResponse({ success: true });
         return true;
     }
 
@@ -428,6 +491,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 console.log(`[VoxLocal] Clearing ${pendingChunks.get(requestId).length} pending chunks for cancelled request ${requestId}`);
                 pendingChunks.delete(requestId);
             }
+
+            // Reset playback tracking and resume any waiting processing (so it can exit cleanly)
+            lastPlayedBackChunkIndex = -1;
+            if (processingResumeCallback) {
+                const callback = processingResumeCallback;
+                processingResumeCallback = null;
+                callback(); // Resume to allow loop to check cancelled flag and exit
+            }
         }
         sendResponse({ success: true });
 
@@ -467,6 +538,12 @@ chrome.runtime.onSuspend.addListener(() => {
     if (activeStreamingRequest) {
         activeStreamingRequest.cancelled = true;
         activeStreamingRequest = null;
+    }
+
+    // Reset playback tracking
+    lastPlayedBackChunkIndex = -1;
+    if (processingResumeCallback) {
+        processingResumeCallback = null;
     }
 });
 //////////////////////////////////////////////////////////////

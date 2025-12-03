@@ -655,6 +655,22 @@ function cancelStreamingTTS() {
     });
 }
 
+// Function to notify background that a chunk finished playback (for processing pacing)
+function notifyChunkPlayedBack(chunkIndex, requestId) {
+    const message = {
+        action: 'chunk_played_back',
+        chunkIndex: chunkIndex,
+        requestId: requestId
+    };
+
+    chrome.runtime.sendMessage(message, (response) => {
+        if (chrome.runtime.lastError) {
+            // This is non-critical, just log and continue
+            console.log('[VoxLocal] Could not notify chunk playback:', chrome.runtime.lastError.message);
+        }
+    });
+}
+
 // Function to query model status from background
 function queryModelStatus() {
     console.log('[VoxLocal] Querying model status from background');
@@ -955,6 +971,10 @@ function playNextAudioChunk() {
             audioControls.source.onended = () => {
                 console.log(`[VoxLocal] ✅ Chunk ${chunk.chunkIndex + 1}/${chunk.totalChunks} playback COMPLETED`);
                 currentAudio = null;
+                
+                // Notify background that this chunk finished playback (for processing pacing)
+                notifyChunkPlayedBack(chunk.chunkIndex, chunk.requestId);
+                
                 // Play next chunk
                 console.log(`[VoxLocal] 🔄 Calling playNextAudioChunk after chunk ${chunk.chunkIndex + 1} completion`);
                 playNextAudioChunk();
