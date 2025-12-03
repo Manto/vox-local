@@ -136,6 +136,46 @@ describe('splitTextIntoSentences', () => {
 
             expect(result).toEqual(['First.', '  Second.', '   Third.']);
         });
+
+        test('should not split at titles like Dr.', () => {
+            const text = 'Dr. Chung went to the store. He bought some milk.';
+            const result = splitTextIntoSentences(text, 100);
+
+            expect(result).toEqual([
+                'Dr. Chung went to the store.',
+                ' He bought some milk.'
+            ]);
+        });
+
+        test('should not split at decimal numbers', () => {
+            const text = 'The price is 12.30 dollars. That is expensive.';
+            const result = splitTextIntoSentences(text, 100);
+
+            expect(result).toEqual([
+                'The price is 12.30 dollars.',
+                ' That is expensive.'
+            ]);
+        });
+
+        test('should not split at common abbreviations', () => {
+            const text = 'Mr. Smith and Mrs. Jones went to the store. They bought groceries.';
+            const result = splitTextIntoSentences(text, 100);
+
+            expect(result).toEqual([
+                'Mr. Smith and Mrs. Jones went to the store.',
+                ' They bought groceries.'
+            ]);
+        });
+
+        test('should handle multiple abbreviations in one sentence', () => {
+            const text = 'Dr. Smith, PhD, and Prof. Johnson attended the conference. It was very interesting.';
+            const result = splitTextIntoSentences(text, 100);
+
+            expect(result).toEqual([
+                'Dr. Smith, PhD, and Prof. Johnson attended the conference.',
+                ' It was very interesting.'
+            ]);
+        });
     });
 
     describe('Integration tests', () => {
