@@ -10,6 +10,13 @@ const NON_SENTENCE_ENDING_ABBREVIATIONS = [
 ];
 
 /**
+ * Abbreviations with multiple periods that shouldn't end sentences
+ */
+const MULTI_PERIOD_ABBREVIATIONS = [
+    'Ph.D.', 'i.e.', 'e.g.', 'etc.', 'vs.', 'cf.', 'et al.'
+];
+
+/**
  * Check if a period is part of a decimal number
  * @param {string} text - The full text
  * @param {number} periodIndex - Index of the period in the text
@@ -35,14 +42,28 @@ const isDecimalNumber = (text, periodIndex) => {
  * @returns {boolean} True if the period is part of an abbreviation
  */
 const isAbbreviation = (text, periodIndex) => {
-    // Look backwards from the period to find the potential abbreviation
-    const beforePeriod = text.slice(Math.max(0, periodIndex - 20), periodIndex);
+    // Check if this period is part of any multi-period abbreviation
+    // Look at various window sizes to see if this period is covered by a multi-period abbreviation
+    for (const abbrev of MULTI_PERIOD_ABBREVIATIONS) {
+        // Check if this period is within a multi-period abbreviation
+        // For each possible start position of the abbreviation that could cover this period
+        for (let offset = 0; offset < abbrev.length; offset++) {
+            const abbrevStart = periodIndex - offset;
+            const abbrevEnd = abbrevStart + abbrev.length;
+            if (abbrevStart >= 0 && abbrevEnd <= text.length &&
+                text.slice(abbrevStart, abbrevEnd) === abbrev &&
+                periodIndex >= abbrevStart && periodIndex < abbrevEnd) {
+                return true;
+            }
+        }
+    }
 
-    // Find the last sequence of letters before the period
-    const match = beforePeriod.match(/([A-Za-z]+)$/);
-    if (!match) return false;
+    // Then check for single abbreviations
+    const beforePeriod = text.slice(Math.max(0, periodIndex - 20), periodIndex + 1);
+    const singleAbbrevMatch = beforePeriod.match(/([A-Za-z]+)\.$/);
+    if (!singleAbbrevMatch) return false;
 
-    const potentialAbbrev = match[1];
+    const potentialAbbrev = singleAbbrevMatch[1];
     return NON_SENTENCE_ENDING_ABBREVIATIONS.some(abbrev =>
         abbrev.toLowerCase() === potentialAbbrev.toLowerCase()
     );
@@ -72,24 +93,25 @@ const findSentenceBoundaries = (text) => {
             continue;
         }
 
-        // For periods, check if followed by whitespace and capital letter (new sentence)
+        // For periods, check if this appears to be a sentence boundary
         // For ! and ?, they're more reliably sentence endings
-        if (punctuation === '.' && index < text.length - 1) {
-            const nextChar = text[index + 1];
-
-            // If not followed by space, it's probably not a sentence end
-            if (nextChar !== ' ') {
-                continue;
-            }
-
-            // Look for the next non-space character after the space
-            let nextNonSpaceIndex = index + 2;
+        if (punctuation === '.') {
+            // Look for the next non-space character after the period
+            let nextNonSpaceIndex = index + 1;
             while (nextNonSpaceIndex < text.length && text[nextNonSpaceIndex] === ' ') {
                 nextNonSpaceIndex++;
             }
 
-            // If the next non-space character is not a capital letter, it's probably not a sentence end
-            if (nextNonSpaceIndex >= text.length || !/^[A-Z]/.test(text[nextNonSpaceIndex])) {
+            // If at end of text, this is definitely a sentence end
+            if (nextNonSpaceIndex >= text.length) {
+                // Valid sentence boundary (end of text)
+            }
+            // If next non-space character matches our relaxed criteria, consider it a boundary
+            else if (/^[A-Z0-9\(\["'\[]/.test(text[nextNonSpaceIndex])) {
+                // Valid sentence boundary (uppercase, digit, or opening punctuation)
+            }
+            // Otherwise, skip this period (likely not a sentence boundary)
+            else {
                 continue;
             }
         }
@@ -109,18 +131,19 @@ const splitLongSentence = (text) => {
     // For long sentences, split at commas first, then fall back to word splitting
     const segments = [];
     let remainingText = text;
-    let commaIndex;
+    let searchStart = 0;
 
     // Split at commas (but not if they're part of numbers or followed by no space)
-    while ((commaIndex = remainingText.indexOf(',')) !== -1) {
+    while ((searchStart = remainingText.indexOf(',', searchStart)) !== -1) {
         // Check if comma is followed by space (indicating it's a separator)
-        if (commaIndex < remainingText.length - 1 && remainingText[commaIndex + 1] === ' ') {
-            const beforeComma = remainingText.slice(0, commaIndex + 1);
+        if (searchStart < remainingText.length - 1 && remainingText[searchStart + 1] === ' ') {
+            const beforeComma = remainingText.slice(0, searchStart + 1);
             segments.push(beforeComma);
-            remainingText = remainingText.slice(commaIndex + 1);
+            remainingText = remainingText.slice(searchStart + 1);
+            searchStart = 0; // Reset search position for the new remainingText
         } else {
-            // Comma not followed by space, keep looking
-            break;
+            // Comma not followed by space, skip this comma and continue searching
+            searchStart += 1; // Advance past this comma
         }
     }
 

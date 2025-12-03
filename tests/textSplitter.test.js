@@ -176,6 +176,112 @@ describe('splitTextIntoSentences', () => {
                 ' It was very interesting.'
             ]);
         });
+
+        test('should not split at multi-period abbreviations like Ph.D.', () => {
+            const text = 'Dr. Jane Smith, Ph.D., gave a lecture. It was very informative.';
+            const result = splitTextIntoSentences(text, 100);
+
+            expect(result).toEqual([
+                'Dr. Jane Smith, Ph.D., gave a lecture.',
+                ' It was very informative.'
+            ]);
+        });
+
+        test('should not split at multi-period abbreviations like i.e.', () => {
+            const text = 'Use acronyms sparingly, i.e., only when necessary. This improves readability.';
+            const result = splitTextIntoSentences(text, 100);
+
+            expect(result).toEqual([
+                'Use acronyms sparingly, i.e., only when necessary.',
+                ' This improves readability.'
+            ]);
+        });
+
+        test('should handle mixed single and multi-period abbreviations', () => {
+            const text = 'Dr. Smith, Ph.D., and Prof. Johnson, e.g., experts in the field, attended the conference. It was very interesting.';
+            const result = splitTextIntoSentences(text, 100);
+
+            expect(result).toEqual([
+                'Dr. Smith, Ph.D., and Prof. Johnson, e.g., experts in the field, attended the conference.',
+                ' It was very interesting.'
+            ]);
+        });
+
+        test('should split at period followed by digit', () => {
+            const text = 'Chapter 1. 2. Chapter 2.';
+            const result = splitTextIntoSentences(text, 100);
+
+            expect(result).toEqual([
+                'Chapter 1.',
+                ' 2.',
+                ' Chapter 2.'
+            ]);
+        });
+
+        test('should split at period followed by opening parenthesis', () => {
+            const text = 'He said. (This is important.)';
+            const result = splitTextIntoSentences(text, 100);
+
+            expect(result).toEqual([
+                'He said.',
+                ' (This is important.)'
+            ]);
+        });
+
+        test('should split at period followed by opening bracket', () => {
+            const text = 'Note. [See appendix]';
+            const result = splitTextIntoSentences(text, 100);
+
+            expect(result).toEqual([
+                'Note.',
+                ' [See appendix]'
+            ]);
+        });
+
+        test('should split at period followed by opening quote', () => {
+            const text = 'He said. "This is important," she added.';
+            const result = splitTextIntoSentences(text, 100);
+
+            expect(result).toEqual([
+                'He said.',
+                ' "This is important," she added.'
+            ]);
+        });
+
+        test('should treat period at end of text as sentence boundary', () => {
+            const text = 'This is the end.';
+            const result = splitTextIntoSentences(text, 100);
+
+            expect(result).toEqual(['This is the end.']);
+        });
+
+        test('should not split at period not followed by valid sentence start', () => {
+            const text = 'The file is config.txt. Another sentence.';
+            const result = splitTextIntoSentences(text, 100);
+
+            expect(result).toEqual([
+                'The file is config.txt.',
+                ' Another sentence.'
+            ]);
+        });
+
+        test('should handle mixed comma patterns in long sentences', () => {
+            const text = 'The items include apples, oranges, bananas, and grapes. More text follows.';
+            const result = splitTextIntoSentences(text, 30); // Force splitting
+
+            // Should split at the comma after "grapes" since it's followed by space and "and"
+            expect(result.length).toBeGreaterThan(1);
+            expect(result.every(chunk => chunk.length <= 30)).toBe(true);
+        });
+
+        test('should skip commas not followed by space and continue processing', () => {
+            const text = 'Values are 1,000, 2,500, and 3,750. Next sentence.';
+            const result = splitTextIntoSentences(text, 25); // Force splitting
+
+            // Should split at the comma after "3,750" since it's followed by space and "and"
+            expect(result.length).toBeGreaterThan(1);
+            expect(result.every(chunk => chunk.length <= 25)).toBe(true);
+        });
     });
 
     describe('Integration tests', () => {
