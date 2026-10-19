@@ -1,6 +1,7 @@
 // background.js - Handles requests from the UI, runs the TTS model, then sends back audio
 
 import { KokoroTTS } from 'kokoro-js';
+import { KittenTTS } from './engines/kittenTTS.js';
 import { splitTextIntoSentences } from './utils/textSplitter.js';
 
 // Configuration: Maximum number of chunks to process ahead of playback
@@ -40,20 +41,25 @@ class TTSSingleton {
     static model_id = 'onnx-community/Kokoro-82M-v1.0-ONNX';
     static instances = new Map(); // Store instances by dtype-device combination
 
-    static async getInstance(dtype = 'fp32', device = 'webgpu', progress_callback = null) {
-        const key = `${dtype}-${device}`;
+    static async getInstance(dtype = 'fp32', device = 'webgpu', progress_callback = null, engine = 'kokoro') {
+        // Kitten only ships an fp32 model and always runs on wasm, so dtype and device do not apply to it
+        const key = engine === 'kitten' ? 'kitten' : `${dtype}-${device}`;
 
         if (!this.instances.has(key)) {
             console.log(`[VoxLocal] Creating new TTS instance for ${key} (dtype: ${dtype}, device: ${device})`);
 
-            // Configure ONNX Runtime options with only kokoro-js supported fields
-            const ortOptions = {
-                dtype: dtype,
-                device: device,
-                progress_callback: progress_callback
-            };
+            if (engine === 'kitten') {
+                this.instances.set(key, await KittenTTS.from_pretrained({ progress_callback }));
+            } else {
+                // Configure ONNX Runtime options with only kokoro-js supported fields
+                const ortOptions = {
+                    dtype: dtype,
+                    device: device,
+                    progress_callback: progress_callback
+                };
 
-            this.instances.set(key, await KokoroTTS.from_pretrained(this.model_id, ortOptions));
+                this.instances.set(key, await KokoroTTS.from_pretrained(this.model_id, ortOptions));
+            }
         } else {
             console.log(`[VoxLocal] Reusing existing TTS instance for ${key} (dtype: ${dtype}, device: ${device})`);
         }
@@ -62,6 +68,23 @@ class TTSSingleton {
     }
 }
 
+// ONNX Runtime's WebGPU build allows only one session.run at a time across all sessions,
+// so every engine's generate() goes through this chain (a cancelled request's in-flight
+// chunk can otherwise overlap with the next request's first chunk)
+let inferenceChain = Promise.resolve();
+function runInference(fn) {
+    const result = inferenceChain.then(fn);
+    inferenceChain = result.catch(() => {});
+    return result;
+}
+
+// Voices are either Kokoro ids (e.g. 'af_heart') or Kitten names prefixed with 'kitten:' (e.g. 'kitten:Bella')
+function parseVoice(voice) {
+    if (voice.startsWith('kitten:')) {
+        return { engine: 'kitten', engineVoice: voice.slice('kitten:'.length) };
+    }
+    return { engine: 'kokoro', engineVoice: voice };
+}
 
 // Create generic TTS function, which will be reused for the different types of events.
 const generateSpeech = async (text, voice = 'af_heart', speed = 1, dtype = 'fp32', device = 'webgpu') => {
@@ -73,6 +96,7 @@ const generateSpeech = async (text, voice = 'af_heart', speed = 1, dtype = 'fp32
     // Track progress milestones to only log at 25%, 50%, 75%, 100%
     let lastDownloadProgress = 0;
 
+    const { engine, engineVoice } = parseVoice(voice);
     let tts = await TTSSingleton.getInstance(dtype, device, (data) => {
         // You can track the progress of the model loading here.
         // e.g., you can send `data` back to the UI to indicate a progress bar
@@ -90,13 +114,13 @@ const generateSpeech = async (text, voice = 'af_heart', speed = 1, dtype = 'fp32
             }
             lastDownloadProgress = currentProgress;
         }
-    });
+    }, engine);
 
     console.log('[VoxLocal] TTS model ready, generating audio...');
 
     // Generate audio from the input text
     console.log(`[VoxLocal] Processing text and generating audio... "${text.substring(0, 100)}${text.length > 100 ? '...' : ''}"`);
-    let audio = await tts.generate(text, { voice, speed });
+    let audio = await runInference(() => tts.generate(text, { voice: engineVoice, speed }));
     console.log(`[VoxLocal] Audio generated successfully (${audio.sample_rate}Hz sample rate)`);
 
     // Use the built-in toBlob method to properly create WAV data
@@ -168,6 +192,7 @@ const generateStreamingSpeech = async (text, voice = 'af_heart', speed = 1, dtyp
     // Track progress milestones to only log at 25%, 50%, 75%, 100%
     let lastDownloadProgress = 0;
 
+    const { engine, engineVoice } = parseVoice(voice);
     let tts = await TTSSingleton.getInstance(dtype, device, (data) => {
         const currentProgress = Math.round(data.progress * 100)/100;
         const milestones = [25, 50, 75, 100];
@@ -181,7 +206,7 @@ const generateStreamingSpeech = async (text, voice = 'af_heart', speed = 1, dtyp
             }
             lastDownloadProgress = currentProgress;
         }
-    });
+    }, engine);
 
     console.log('[VoxLocal] TTS model ready, starting streaming audio generation...');
 
@@ -209,7 +234,7 @@ const generateStreamingSpeech = async (text, voice = 'af_heart', speed = 1, dtyp
 
         try {
             // Generate audio for this chunk
-            let audio = await tts.generate(chunk, { voice, speed });
+            let audio = await runInference(() => tts.generate(chunk, { voice: engineVoice, speed }));
             console.log(`[VoxLocal] Chunk ${i + 1} audio generated successfully (${audio.sample_rate}Hz sample rate)`);
 
             // Convert to base64

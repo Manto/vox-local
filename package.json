@@ -1,22 +1,29 @@
 {
   "name": "voxlocal-extension",
-  "version": "1.0.1",
-  "description": "High-quality text-to-speech Chrome extension built upon Kokoro.js - 82M parameter TTS model running entirely in the browser",
+  "version": "1.1.0",
+  "description": "High-quality text-to-speech Chrome extension built upon Kokoro.js - 82M parameter TTS model - and Kitten TTS, running entirely in the browser",
   "scripts": {
     "build": "webpack --mode production",
     "build:dev": "webpack",
     "build:release": "npm run build && zip -r voxlocal-extension-v${npm_package_version}.zip build/",
     "dev": "webpack --watch",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "test:e2e": "npm run build && playwright test",
+    "test:e2e:real": "npm run build && E2E_REAL=1 playwright test e2e/extension.spec.js"
   },
   "jest": {
     "testEnvironment": "node",
     "transform": {
       "^.+\\.js$": "babel-jest"
     },
-    "moduleFileExtensions": ["js", "json"],
-    "testMatch": ["**/tests/**/*.test.js"],
+    "moduleFileExtensions": [
+      "js",
+      "json"
+    ],
+    "testMatch": [
+      "**/tests/**/*.test.js"
+    ],
     "transformIgnorePatterns": [
       "node_modules/(?!(kokoro-js|@huggingface)/)"
     ]
@@ -27,6 +34,7 @@
   "devDependencies": {
     "@babel/core": "^7.28.5",
     "@babel/preset-env": "^7.28.5",
+    "@playwright/test": "^1.64.1",
     "babel-jest": "^29.7.0",
     "copy-webpack-plugin": "^11.0.0",
     "html-webpack-plugin": "^5.5.1",
@@ -36,6 +44,8 @@
   },
   "dependencies": {
     "@huggingface/transformers": "^3.7.6",
-    "kokoro-js": "^1.2.1"
+    "kokoro-js": "^1.2.1",
+    "onnxruntime-web": "1.22.0-dev.20250409-89f8206ba4",
+    "phonemizer": "1.2.1"
   }
 }
