@@ -244,12 +244,24 @@ function createFloatingPlayer() {
                     <div class="setting-label">voice</div>
                 </div>
                 <select id="voxlocal-voice-select" class="voxlocal-setting-control hidden">
-                    <option value="af_heart">Heart (Female)</option>
-                    <option value="af_bella">Bella (Female)</option>
-                    <option value="am_michael">Michael (Male)</option>
-                    <option value="am_fenrir">Fenrir (Male)</option>
-                    <option value="bf_emma">Emma (British Female)</option>
-                    <option value="bm_george">George (British Male)</option>
+                    <optgroup label="Kokoro">
+                        <option value="af_heart">Heart (Female)</option>
+                        <option value="af_bella">Bella (Female)</option>
+                        <option value="am_michael">Michael (Male)</option>
+                        <option value="am_fenrir">Fenrir (Male)</option>
+                        <option value="bf_emma">Emma (British Female)</option>
+                        <option value="bm_george">George (British Male)</option>
+                    </optgroup>
+                    <optgroup label="Kitten Mini">
+                        <option value="kitten:Bella">Bella (Female)</option>
+                        <option value="kitten:Jasper">Jasper (Male)</option>
+                        <option value="kitten:Luna">Luna (Female)</option>
+                        <option value="kitten:Bruno">Bruno (Male)</option>
+                        <option value="kitten:Rosie">Rosie (Female)</option>
+                        <option value="kitten:Hugo">Hugo (Male)</option>
+                        <option value="kitten:Kiki">Kiki (Female)</option>
+                        <option value="kitten:Leo">Leo (Male)</option>
+                    </optgroup>
                 </select>
             </div>
             <div class="voxlocal-setting-item">
@@ -616,13 +628,14 @@ function hideAllSettingControls() {
     });
 }
 
-// Update voice display with current selected voice name
+// Update voice display with current selected voice name and its engine
 function updateVoiceDisplay() {
     const voiceSelect = document.getElementById('voxlocal-voice-select');
-    const voiceDisplay = document.getElementById('voxlocal-voice-display').querySelector('.setting-value');
+    const display = document.getElementById('voxlocal-voice-display');
     const selectedOption = voiceSelect.options[voiceSelect.selectedIndex];
     const voiceName = selectedOption.text.split(' (')[0]; // Get name before parentheses
-    voiceDisplay.textContent = voiceName;
+    display.querySelector('.setting-value').textContent = voiceName;
+    display.querySelector('.setting-label').textContent = `${selectedOption.parentElement.label} voice`;
 }
 
 // Update speed display
@@ -810,10 +823,9 @@ function stopPlayback() {
     if (isStreaming) {
         console.log('[VoxLocal] Cancelling active streaming request');
         cancelStreamingTTS();
-        resetStreamingState();
-    } else {
-        resetButtons();
     }
+    // Always drop queued chunks, even when generation already finished but playback hasn't
+    resetStreamingState();
 
     updateStatus('Stopped', 'ready');
 }
@@ -928,6 +940,11 @@ function updateButtonStates() {
 
 // Play next audio chunk from stored chunks
 function playNextAudioChunk() {
+    // Playback was stopped; a late onended or chunk decode must not touch the status
+    if (currentStreamingRequestId === null) {
+        return;
+    }
+
     // Check if we have the next expected chunk
     if (!audioChunks[nextExpectedChunkIndex]) {
         if (isStreaming || !streamingComplete) {
@@ -969,6 +986,10 @@ function playNextAudioChunk() {
             currentAudio = audioControls;
 
             audioControls.source.onended = () => {
+                // source.stop() fires onended asynchronously; a stopped chunk is no longer currentAudio
+                if (currentAudio !== audioControls) {
+                    return;
+                }
                 console.log(`[VoxLocal] ✅ Chunk ${chunk.chunkIndex + 1}/${chunk.totalChunks} playback COMPLETED`);
                 currentAudio = null;
                 

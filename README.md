@@ -1,12 +1,12 @@
 # 🎵 VoxLocal - Chrome Extension
 
-High-quality text-to-speech for the web built upon [Kokoro.js](https://github.com/hexgrad/kokoro) - a 82M parameter TTS model running entirely in your browser!
+High-quality text-to-speech for the web built upon [Kokoro.js](https://github.com/hexgrad/kokoro) - a 82M parameter TTS model - and [Kitten TTS](https://github.com/KittenML/KittenTTS), both running entirely in your browser!
 
 ## ✨ Features
 
-- **High-Quality Speech**: Uses Kokoro-82M model for natural-sounding text-to-speech
+- **High-Quality Speech**: Uses the Kokoro-82M and Kitten TTS Mini models for natural-sounding text-to-speech
 - **Browser-Native**: Runs entirely in your browser with WebAssembly - no external APIs or cloud services
-- **Multiple Voices**: Choose from various American and British English voices
+- **Multiple Voices**: Choose from American and British English Kokoro voices or eight Kitten voices
 - **Speed Control**: Adjust speaking speed from 0.5x to 2.0x
 - **Context Menu**: Right-click any selected text on web pages to hear it spoken
 - **Privacy-Focused**: All processing happens locally on your device
@@ -62,7 +62,9 @@ High-quality text-to-speech for the web built upon [Kokoro.js](https://github.co
 ```text
 src/
 ├── background.js    # Service worker - handles TTS model loading and audio generation
-└── content.js       # Content script for webpage integration and UI
+├── content.js       # Content script for webpage integration and UI
+└── engines/
+    └── kittenTTS.js # Kitten TTS engine (ONNX Runtime Web, always runs on wasm)
 
 public/
 ├── manifest.json    # Extension manifest
@@ -94,27 +96,36 @@ build/               # Compiled extension (generated)
 
 ### Key Files
 
-- **`background.js`**: Loads the Kokoro TTS model and handles audio generation requests
+- **`background.js`**: Loads the Kokoro or Kitten TTS model and handles audio generation requests
+- **`engines/kittenTTS.js`**: Runs the Kitten TTS model with the same `generate()` interface as Kokoro
 - **`content.js`**: Manages the floating player UI and streaming audio playback
 - **`manifest.json`**: Defines extension permissions and structure
 
 ## 🎙️ Available Voices
 
-### American English
+Pick a voice from the **voice** setting in the floating player. The voice decides which engine runs.
+
+### Kokoro
+
+#### American English
 - **af_heart** (Female)
 - **af_bella** (Female)
 - **am_michael** (Male)
 - **am_fenrir** (Male)
 
-### British English
+#### British English
 - **bf_emma** (Female)
 - **bm_george** (Male)
+
+### Kitten Mini
+- **Bella**, **Luna**, **Rosie**, **Kiki** (Female)
+- **Jasper**, **Bruno**, **Hugo**, **Leo** (Male)
 
 ## 📋 Requirements
 
 - **Chrome**: Version 92 or later
 - **WebAssembly**: Enabled (default in modern Chrome)
-- **Storage**: ~100MB for model files (downloaded on first use)
+- **Storage**: ~100MB for model files, plus ~80MB if you use Kitten voices (downloaded on first use)
 
 ## 🔒 Privacy & Security
 
@@ -141,7 +152,15 @@ npm test
 
 # Run tests in watch mode (for development)
 npm run test:watch
+
+# Run the Playwright end-to-end tests (first time: npx playwright install chromium)
+npm run test:e2e
+
+# Run the smoke test against the real extension (downloads the Kitten model)
+npm run test:e2e:real
 ```
+
+`npm run test:e2e` loads the built content script in Chromium with a fake background, so it covers the floating player's playback states (chunk ordering, waiting for chunks, stop, restart, errors, voice selection) without downloading a model. `npm run test:e2e:real` loads the whole `build/` extension and speaks a selection with a Kitten voice.
 
 ### Test Coverage
 
@@ -171,4 +190,5 @@ This project uses the Apache 2.0 License. See [LICENSE](LICENSE) for details.
 ## 🙏 Acknowledgments
 
 - [Hexgrad](https://github.com/hexgrad) for the Kokoro.js framework and the TTS model
+- [KittenML](https://github.com/KittenML/KittenTTS) for the Kitten TTS model
 - [HuggingFace](https://huggingface.co) for Transformers.js

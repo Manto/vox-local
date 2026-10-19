@@ -44,6 +44,10 @@ pids
 # Coverage directory used by tools like istanbul
 coverage/
 
+# Playwright output
+test-results/
+playwright-report/
+
 # Chrome extension development
 *.pem
 *.crx

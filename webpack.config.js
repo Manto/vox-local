@@ -26,7 +26,8 @@ const config = {
             patterns: [
                 {
                     from: "public",
-                    to: "." // Copies to build folder
+                    to: ".", // Copies to build folder
+                    globOptions: { ignore: ["**/.DS_Store"] }
                 }
             ],
         })
