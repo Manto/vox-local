@@ -1171,8 +1171,12 @@ async function loadSettings() {
         const result = await chrome.storage.sync.get('voxLocalSettings');
         const settings = result.voxLocalSettings || {};
 
-        // Apply saved settings with defaults
-        document.getElementById('voxlocal-voice-select').value = settings.voice || 'af_heart';
+        // Apply saved settings with defaults. A saved voice may no longer exist
+        // (e.g. removed in an update), so fall back to the default instead of an empty selection.
+        const voiceSelect = document.getElementById('voxlocal-voice-select');
+        const savedVoice = settings.voice;
+        const voiceExists = savedVoice && Array.from(voiceSelect.options).some(o => o.value === savedVoice);
+        voiceSelect.value = voiceExists ? savedVoice : 'af_heart';
         document.getElementById('voxlocal-speed-slider').value = settings.speed || 1.0;
 
         // Update displays
