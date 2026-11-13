@@ -20,6 +20,7 @@ const config = {
     output: {
         path: path.resolve(__dirname, 'build'),
         filename: '[name].js',
+        clean: true, // Remove stale assets (e.g. old onnxruntime wasm) so they don't end up in release zips
     },
     plugins: [
         new CopyPlugin({
