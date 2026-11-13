@@ -23,6 +23,9 @@ let totalStreamChunks = 0;
 let nextExpectedChunkIndex = 0; // Track the next chunk index we should play
 let isDecodingChunk = false; // Prevent concurrent chunk decoding
 let streamingComplete = false; // Track if streaming has finished from background
+let isPaused = false; // Playback paused by user (AudioContext suspended)
+let lastPlayedBackIndex = -1; // Last chunk index that finished playing
+let currentStreamParams = null; // { text, voice, speed } of the active stream, used to recover after pause
 
 // Global AudioContext for Web Audio API
 let audioContext = null;
@@ -106,7 +109,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             case 'PLAY_SELECTION':
                 showFloatingPlayer();
                 // Stop any current playback before starting new selection
-                if (isStreaming || currentAudio) {
+                if (isPlaybackActive()) {
                     stopPlayback();
                 }
                 speakFromPage('selection');
@@ -132,6 +135,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 audioChunks[message.chunkIndex] = message;
                 console.log(`[VoxLocal] ➕ Stored chunk ${message.chunkIndex + 1}. Total chunks stored: ${Object.keys(audioChunks).length}/${totalStreamChunks}`);
 
+                // While paused, just buffer the chunk
+                if (isPaused) {
+                    break;
+                }
+
                 // Update status
                 updateStatus(`Processing chunks: ${streamChunksReceived}/${totalStreamChunks} received`, 'loading');
 
@@ -152,7 +160,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     isStreaming = false; // But keep currentStreamingRequestId until all chunks are played
 
                     // If no chunks are currently playing and no more chunks to play, update status
-                    if (!currentAudio && nextExpectedChunkIndex >= totalStreamChunks) {
+                    // (a chunk still decoding will finish the session from its onended handler)
+                    if (!currentAudio && !isDecodingChunk && nextExpectedChunkIndex >= totalStreamChunks) {
                         updateStatus('Ready', 'ready');
                         updateButtonStates();
                         resetStreamingState(); // Now safe to reset since all chunks are done
@@ -235,6 +244,9 @@ function createFloatingPlayer() {
         <div class="voxlocal-controls">
             <button id="voxlocal-play-stop-btn" class="voxlocal-btn voxlocal-btn-primary" title="Play selection or page">
                 <img src="" class="icon" alt="Play"> Play
+            </button>
+            <button id="voxlocal-pause-resume-btn" class="voxlocal-btn voxlocal-btn-secondary hidden" title="Pause speaking">
+                ⏸ Pause
             </button>
         </div>
         <div class="voxlocal-settings">
@@ -350,6 +362,7 @@ function injectPlayerStyles() {
         .status-badge.loading { background-color: #ffc107; color: black; }
         .status-badge.speaking { background-color: #007bff; color: white; }
         .status-badge.error { background-color: #dc3545; color: white; }
+        .status-badge.paused { background-color: #6c757d; color: white; }
 
         .voxlocal-controls {
             display: flex;
@@ -378,6 +391,9 @@ function injectPlayerStyles() {
         .voxlocal-btn-primary:hover:not(:disabled) { background-color: #0056b3; }
         .voxlocal-btn-danger { background-color: #dc3545; color: white; }
         .voxlocal-btn-danger:hover:not(:disabled) { background-color: #c82333; }
+        .voxlocal-btn-secondary { background-color: #6c757d; color: white; padding: 8px 12px; }
+        .voxlocal-btn-secondary:hover:not(:disabled) { background-color: #5a6268; }
+        .voxlocal-btn.hidden { display: none; }
 
         .icon {
             font-size: 48px;
@@ -545,6 +561,9 @@ function setupEventListeners() {
     // Play/Stop button
     document.getElementById('voxlocal-play-stop-btn').addEventListener('click', togglePlayStop);
 
+    // Pause/Resume button
+    document.getElementById('voxlocal-pause-resume-btn').addEventListener('click', togglePauseResume);
+
     // Settings change listeners
     voiceSelect.addEventListener('change', () => {
         updateVoiceDisplay();
@@ -645,7 +664,8 @@ function cancelStreamingTTS() {
 
     // Send cancel message to background
     const message = {
-        action: 'cancel_stream'
+        action: 'cancel_stream',
+        requestId: currentStreamingRequestId
     };
 
     chrome.runtime.sendMessage(message, (response) => {
@@ -704,6 +724,8 @@ function sendStreamingTTS(text, voice, speed) {
     streamChunksReceived = 0;
     totalStreamChunks = 0;
     streamingComplete = false; // Reset streaming complete flag
+    lastPlayedBackIndex = -1;
+    currentStreamParams = { text, voice, speed };
 
     // Update button states for streaming
     updateButtonStates();
@@ -776,7 +798,7 @@ async function speakFromPage(type) {
 // Toggle between play and stop functionality
 function togglePlayStop() {
     // If currently playing (streaming), stop
-    if (isStreaming || currentAudio) {
+    if (isPlaybackActive()) {
         console.log('[VoxLocal] Play/Stop button clicked - stopping playback');
         stopPlayback();
         return;
@@ -791,6 +813,11 @@ function togglePlayStop() {
         console.log('[VoxLocal] Play/Stop button clicked - playing page');
         speakFromPage('page');
     }
+}
+
+// True while a streaming session is in progress (generating, playing, or paused)
+function isPlaybackActive() {
+    return isStreaming || currentAudio !== null || currentStreamingRequestId !== null;
 }
 
 // Stop playback
@@ -810,12 +837,98 @@ function stopPlayback() {
     if (isStreaming) {
         console.log('[VoxLocal] Cancelling active streaming request');
         cancelStreamingTTS();
-        resetStreamingState();
-    } else {
-        resetButtons();
     }
 
+    // Always clear buffered chunks so nothing keeps playing after stop
+    resetStreamingState();
+
     updateStatus('Stopped', 'ready');
+}
+
+function togglePauseResume() {
+    if (isPaused) {
+        resumePlayback();
+    } else {
+        pausePlayback();
+    }
+}
+
+// Pause playback by suspending the AudioContext (freezes the current chunk mid-sentence)
+function pausePlayback() {
+    if (isPaused || currentStreamingRequestId === null) return;
+    console.log('[VoxLocal] Pausing playback');
+    isPaused = true;
+    if (audioContext) {
+        audioContext.suspend();
+    }
+    updateStatus('Paused', 'paused');
+    updatePauseButton();
+}
+
+function resumePlayback() {
+    if (!isPaused) return;
+    console.log('[VoxLocal] Resuming playback');
+    isPaused = false;
+    if (audioContext) {
+        audioContext.resume();
+    }
+    updatePauseButton();
+    updateStatus('Speaking', 'speaking');
+
+    ensureBackgroundStream();
+
+    // If we paused between chunks, kick off the next one
+    if (!currentAudio && !isDecodingChunk) {
+        playNextAudioChunk();
+    }
+}
+
+// The background service worker may have been shut down while paused (MV3 idle timeout).
+// Ask it to continue generating from the next chunk we have not received yet.
+function ensureBackgroundStream() {
+    if (!isStreaming || streamingComplete || !currentStreamParams) return;
+
+    // Every chunk already arrived; only the completion message was lost - finish locally
+    if (totalStreamChunks > 0 && streamChunksReceived >= totalStreamChunks) {
+        streamingComplete = true;
+        isStreaming = false;
+        return;
+    }
+
+    const requestId = currentStreamingRequestId;
+    const message = {
+        action: 'resume_stream',
+        requestId: currentStreamingRequestId,
+        text: currentStreamParams.text,
+        voice: currentStreamParams.voice,
+        speed: currentStreamParams.speed,
+        startChunkIndex: streamChunksReceived,
+        lastPlayedBackChunkIndex: lastPlayedBackIndex
+    };
+
+    chrome.runtime.sendMessage(message, (response) => {
+        const error = chrome.runtime.lastError?.message || (response && !response.success && response.error);
+        if (error) {
+            console.error('[VoxLocal] Error resuming stream:', error);
+            if (requestId === currentStreamingRequestId) {
+                updateStatus('Error: ' + error, 'error');
+                resetStreamingState();
+            }
+            return;
+        }
+        if (response?.restarted) {
+            console.log(`[VoxLocal] Background restarted generation from chunk ${streamChunksReceived + 1}`);
+        }
+    });
+}
+
+function updatePauseButton() {
+    const pauseBtn = document.getElementById('voxlocal-pause-resume-btn');
+    if (!pauseBtn) return;
+
+    pauseBtn.classList.toggle('hidden', currentStreamingRequestId === null);
+    pauseBtn.textContent = isPaused ? '▶ Resume' : '⏸ Pause';
+    pauseBtn.title = isPaused ? 'Resume speaking' : 'Pause speaking';
 }
 
 // Play audio from base64 data using Web Audio API
@@ -904,6 +1017,25 @@ function resetStreamingState() {
     totalStreamChunks = 0;
     isDecodingChunk = false; // Clear decoding flag
     streamingComplete = false; // Reset streaming complete flag
+    lastPlayedBackIndex = -1;
+    currentStreamParams = null;
+
+    // Leave paused state; drop any frozen audio so it doesn't resume on its own
+    if (isPaused) {
+        isPaused = false;
+        if (currentAudio) {
+            try {
+                currentAudio.stop();
+            } catch (error) {
+                // Already stopped
+            }
+            currentAudio = null;
+        }
+        if (audioContext) {
+            audioContext.resume();
+        }
+    }
+
     updateButtonStates();
 }
 
@@ -924,22 +1056,31 @@ function updateButtonStates() {
         resetButtons();
         document.addEventListener('selectionchange', updateButtonText);
     }
+    updatePauseButton();
 }
 
 // Play next audio chunk from stored chunks
 function playNextAudioChunk() {
+    // Playback was stopped - nothing to do
+    if (currentStreamingRequestId === null) {
+        return;
+    }
+
     // Check if we have the next expected chunk
     if (!audioChunks[nextExpectedChunkIndex]) {
-        if (isStreaming || !streamingComplete) {
+        if (streamingComplete && nextExpectedChunkIndex >= totalStreamChunks) {
+            // All chunks played - finish the session (even if the user hit Pause at the very end)
+            updateStatus('Ready', 'ready');
+            resetButtons();
+            resetStreamingState();
+        } else if (!isPaused) {
             updateStatus('Streaming: waiting for next chunk...', 'loading');
-        } else {
-            // Streaming complete, check if we have all chunks
-            if (nextExpectedChunkIndex >= totalStreamChunks) {
-                updateStatus('Ready', 'ready');
-                resetButtons();
-                resetStreamingState(); // Now safe to reset since all chunks are done
-            }
         }
+        return;
+    }
+
+    // Don't start new chunks while paused; resumePlayback() will call us again
+    if (isPaused) {
         return;
     }
 
@@ -956,22 +1097,29 @@ function playNextAudioChunk() {
         const { playPromise } = createAudioFromBase64(chunk.audio, { speed: chunk.speed || 1 });
 
         playPromise.then(audioControls => {
-            isDecodingChunk = false; // Clear decoding flag
-
-            // Validate that this chunk belongs to the current streaming request
+            // Validate that this chunk belongs to the current streaming request. A stale decode
+            // (finished after Stop) must not touch the state of a newer session.
             if (chunk.requestId !== currentStreamingRequestId) {
                 console.log(`[VoxLocal] 🚫 Skipping stale chunk ${chunk.chunkIndex + 1} - wrong request ID (expected: ${currentStreamingRequestId}, got: ${chunk.requestId})`);
-                // Continue draining the queue to process any buffered valid chunks
-                playNextAudioChunk();
                 return;
             }
+
+            isDecodingChunk = false; // Clear decoding flag
 
             currentAudio = audioControls;
 
             audioControls.source.onended = () => {
                 console.log(`[VoxLocal] ✅ Chunk ${chunk.chunkIndex + 1}/${chunk.totalChunks} playback COMPLETED`);
-                currentAudio = null;
-                
+                if (currentAudio === audioControls) {
+                    currentAudio = null;
+                }
+
+                // Playback was stopped or superseded - don't continue the queue
+                if (chunk.requestId !== currentStreamingRequestId) {
+                    return;
+                }
+                lastPlayedBackIndex = chunk.chunkIndex;
+
                 // Notify background that this chunk finished playback (for processing pacing)
                 notifyChunkPlayedBack(chunk.chunkIndex, chunk.requestId);
                 
@@ -986,6 +1134,9 @@ function playNextAudioChunk() {
 
         }).catch((error) => {
             console.error(`[VoxLocal] ❌ Audio chunk ${chunk.chunkIndex + 1} play FAILED:`, error.message);
+            if (chunk.requestId !== currentStreamingRequestId) {
+                return; // Stale session, ignore
+            }
             isDecodingChunk = false; // Clear decoding flag on error
             currentAudio = null;
             resetStreamingState();

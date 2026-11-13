@@ -151,16 +151,19 @@ function onChunkPlayedBack(chunkIndex) {
 }
 
 // Streaming TTS function that processes text in chunks and sends audio segments
-const generateStreamingSpeech = async (text, voice = 'af_heart', speed = 1, dtype = 'fp32', device = 'webgpu', requestId, onChunkComplete) => {
-    console.log(`[VoxLocal] Starting streaming speech generation for text (${text.length} characters) with voice: ${voice}, speed: ${speed}x, dtype: ${dtype}, device: ${device}`);
-
-    // Reset playback tracking for new streaming request
-    lastPlayedBackChunkIndex = -1;
-    processingResumeCallback = null;
+// startChunkIndex allows continuing a stream (e.g. after the service worker restarted during a pause)
+// isCurrent() returns false once this request has been cancelled or replaced.
+const generateStreamingSpeech = async (text, voice = 'af_heart', speed = 1, dtype = 'fp32', device = 'webgpu', requestId, onChunkComplete, startChunkIndex = 0, isCurrent = () => true) => {
+    console.log(`[VoxLocal] Starting streaming speech generation for text (${text.length} characters) with voice: ${voice}, speed: ${speed}x, dtype: ${dtype}, device: ${device}, startChunkIndex: ${startChunkIndex}`);
 
     // Split text into manageable chunks
     const textChunks = splitTextIntoSentences(text);
     console.log(`[VoxLocal] Split text into ${textChunks.length} chunks for streaming`);
+
+    // Nothing left to generate (e.g. continuing a stream whose chunks were all delivered) - skip model load
+    if (startChunkIndex >= textChunks.length) {
+        return [];
+    }
 
     // Get the TTS instance
     console.log('[VoxLocal] Checking TTS model availability...');
@@ -188,9 +191,9 @@ const generateStreamingSpeech = async (text, voice = 'af_heart', speed = 1, dtyp
     const results = [];
 
     // Process each chunk
-    for (let i = 0; i < textChunks.length; i++) {
-        // Check if streaming was cancelled - capture requestId locally to avoid race conditions
-        if (!activeStreamingRequest || activeStreamingRequest.id !== requestId || activeStreamingRequest.cancelled) {
+    for (let i = startChunkIndex; i < textChunks.length; i++) {
+        // Check if streaming was cancelled or replaced by another request
+        if (!isCurrent()) {
             console.log('[VoxLocal] Streaming cancelled by user');
             break;
         }
@@ -199,7 +202,7 @@ const generateStreamingSpeech = async (text, voice = 'af_heart', speed = 1, dtyp
         await waitForPlaybackToCatchUp(i);
 
         // Check again after waiting in case streaming was cancelled while waiting
-        if (!activeStreamingRequest || activeStreamingRequest.id !== requestId || activeStreamingRequest.cancelled) {
+        if (!isCurrent()) {
             console.log('[VoxLocal] Streaming cancelled by user while waiting for playback');
             break;
         }
@@ -234,8 +237,9 @@ const generateStreamingSpeech = async (text, voice = 'af_heart', speed = 1, dtyp
             results.push(chunkResult);
 
             // Call the callback with this chunk result
+            // Await so sends stay ordered and don't overlap (overlap caused duplicate deliveries)
             if (onChunkComplete) {
-                onChunkComplete(chunkResult);
+                await onChunkComplete(chunkResult);
             }
 
         } catch (error) {
@@ -332,8 +336,95 @@ const HANDLED_ACTIONS = new Set([
     'cancel_stream',
     'query_model_status',
     'request_pending_chunks',
-    'chunk_played_back'
+    'chunk_played_back',
+    'resume_stream'
 ]);
+
+// Queue a message for the content script and try to deliver it
+async function queueAndSend(requestId, tabId, msg) {
+    if (!pendingChunks.has(requestId)) {
+        pendingChunks.set(requestId, []);
+    }
+    pendingChunks.get(requestId).push(msg);
+    await sendQueuedChunks(requestId, tabId);
+}
+
+// Start (or continue, from startChunkIndex) a streaming TTS request. Results and errors
+// are delivered to the content script via stream_chunk / stream_complete / stream_error messages.
+function startStreamingRequest({ requestId, tabId, text, voice, speed, dtype, device, startChunkIndex = 0, lastPlayedIndex = -1 }) {
+    const previous = activeStreamingRequest;
+    if (previous) {
+        console.log('[VoxLocal] Cancelling previous streaming request');
+        previous.cancelled = true;
+        // Tell the superseded player (e.g. a paused tab) so it doesn't wait forever for more chunks
+        if (previous.id !== requestId) {
+            pendingChunks.delete(previous.id);
+            chrome.tabs.sendMessage(previous.tabId, {
+                action: 'stream_error',
+                requestId: previous.id,
+                error: 'Playback started in another tab'
+            }).catch(() => {});
+        }
+    }
+    // Wake a previous loop waiting on playback so it can see the cancel flag and exit
+    if (processingResumeCallback) {
+        const callback = processingResumeCallback;
+        processingResumeCallback = null;
+        callback();
+    }
+
+    const request = { cancelled: false, id: requestId, tabId };
+    activeStreamingRequest = request;
+    // Set synchronously so chunk_played_back messages arriving right away aren't overwritten
+    lastPlayedBackChunkIndex = lastPlayedIndex;
+    const isCurrent = () => activeStreamingRequest === request && !request.cancelled;
+
+    (async function () {
+        try {
+            // Show player immediately when streaming starts
+            try {
+                await chrome.tabs.sendMessage(tabId, { action: 'SHOW_PLAYER' });
+            } catch (error) {
+                console.log('[VoxLocal] Could not show player immediately, will show when first chunk arrives');
+            }
+            await generateStreamingSpeech(
+                text,
+                voice,
+                speed,
+                dtype,
+                device,
+                requestId,
+                async (chunkResult) => {
+                    // Queue chunk for sending to content script only if streaming hasn't been cancelled
+                    if (isCurrent()) {
+                        console.log(`[VoxLocal] Queueing chunk ${chunkResult.chunkIndex + 1}/${chunkResult.totalChunks} for content script`);
+                        await queueAndSend(requestId, tabId, chunkResult);
+                    } else {
+                        console.log(`[VoxLocal] Skipping chunk ${chunkResult.chunkIndex + 1}/${chunkResult.totalChunks} - streaming cancelled`);
+                    }
+                },
+                startChunkIndex,
+                isCurrent
+            );
+
+            if (isCurrent()) {
+                console.log('[VoxLocal] Streaming complete, queuing completion message');
+                await queueAndSend(requestId, tabId, { action: 'stream_complete', requestId });
+            }
+        } catch (error) {
+            console.error('[VoxLocal] Streaming TTS error:', error);
+            if (isCurrent()) {
+                console.log('[VoxLocal] Streaming error, queuing error message');
+                await queueAndSend(requestId, tabId, { action: 'stream_error', requestId, error: error.message });
+            }
+        } finally {
+            // Only clear if a newer request hasn't replaced this one
+            if (activeStreamingRequest === request) {
+                activeStreamingRequest = null;
+            }
+        }
+    })();
+}
 
 // Listen for messages from the UI, process it, and send the result back.
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -389,14 +480,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
     }
 
-    if (message.action === 'speak_stream') {
-        console.log(`[VoxLocal] Received streaming request - requestId: ${message.requestId}, dtype: ${message.dtype}, device: ${message.device}, voice: ${message.voice}, speed: ${message.speed}x`);
-
-        // Handle streaming TTS
-        if (activeStreamingRequest) {
-            console.log('[VoxLocal] Cancelling previous streaming request');
-            activeStreamingRequest.cancelled = true;
-        }
+    if (message.action === 'speak_stream' || message.action === 'resume_stream') {
+        console.log(`[VoxLocal] Received ${message.action} request - requestId: ${message.requestId}, dtype: ${message.dtype}, device: ${message.device}, voice: ${message.voice}, speed: ${message.speed}x`);
 
         const requestId = message.requestId || ++requestIdCounter;
         const tabId = sender.tab?.id;
@@ -407,90 +492,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             return true;
         }
 
-        activeStreamingRequest = { cancelled: false, id: requestId };
+        // Resuming after a pause: if this request is still being generated, nothing to do.
+        // Otherwise (e.g. the service worker was restarted while paused) continue from where the content script left off.
+        if (message.action === 'resume_stream' && activeStreamingRequest?.id === requestId && !activeStreamingRequest.cancelled) {
+            sendResponse({ success: true, restarted: false });
+            return true;
+        }
 
-        // Run streaming TTS asynchronously
-        (async function () {
-            try {
-                // Show player immediately when streaming starts
-                try {
-                    await chrome.tabs.sendMessage(tabId, { action: 'SHOW_PLAYER' });
-                } catch (error) {
-                    console.log('[VoxLocal] Could not show player immediately, will show when first chunk arrives');
-                }
-                await generateStreamingSpeech(
-                    message.text,
-                    message.voice,
-                    message.speed,
-                    message.dtype,
-                    message.device,
-                    requestId,
-                    async (chunkResult) => {
-                        // Queue chunk for sending to content script only if streaming hasn't been cancelled
-                        if (activeStreamingRequest?.id === requestId && !activeStreamingRequest.cancelled) {
-                            console.log(`[VoxLocal] Queueing chunk ${chunkResult.chunkIndex + 1}/${chunkResult.totalChunks} for content script`);
-                            if (!pendingChunks.has(requestId)) {
-                                pendingChunks.set(requestId, []);
-                            }
-                            pendingChunks.get(requestId).push(chunkResult);
+        startStreamingRequest({
+            requestId,
+            tabId,
+            text: message.text,
+            voice: message.voice,
+            speed: message.speed,
+            dtype: message.dtype,
+            device: message.device,
+            startChunkIndex: message.startChunkIndex || 0,
+            lastPlayedIndex: message.lastPlayedBackChunkIndex ?? -1
+        });
 
-                            // Try to send immediately, but don't fail if content script is unavailable
-                            if (tabId) {
-                                await sendQueuedChunks(requestId, tabId);
-                            }
-                        } else {
-                            console.log(`[VoxLocal] Skipping chunk ${chunkResult.chunkIndex + 1}/${chunkResult.totalChunks} - streaming cancelled`);
-                        }
-                    }
-                );
-
-                // Send completion message
-                if (activeStreamingRequest?.id === requestId && !activeStreamingRequest.cancelled) {
-                    console.log('[VoxLocal] Streaming complete, queuing completion message');
-
-                    // Add completion message to queue
-                    if (!pendingChunks.has(requestId)) {
-                        pendingChunks.set(requestId, []);
-                    }
-                    pendingChunks.get(requestId).push({ action: 'stream_complete', requestId: requestId });
-
-                    // Try to send immediately
-                    if (tabId) {
-                        await sendQueuedChunks(requestId, tabId);
-                    }
-                }
-
-                activeStreamingRequest = null;
-                sendResponse({ success: true });
-
-            } catch (error) {
-                console.error('[VoxLocal] Streaming TTS error:', error);
-                if (activeStreamingRequest?.id === requestId && !activeStreamingRequest.cancelled) {
-                    console.log('[VoxLocal] Streaming error, queuing error message');
-
-                    // Add error message to queue
-                    if (!pendingChunks.has(requestId)) {
-                        pendingChunks.set(requestId, []);
-                    }
-                    pendingChunks.get(requestId).push({
-                        action: 'stream_error',
-                        requestId: requestId,
-                        error: error.message
-                    });
-
-                    // Try to send immediately
-                    if (tabId) {
-                        await sendQueuedChunks(requestId, tabId);
-                    }
-                }
-                activeStreamingRequest = null;
-                sendResponse({ success: false, error: error.message });
-            }
-        })();
+        // Respond right away; progress/errors arrive as stream_* messages. Holding the response open
+        // would fail with an error in the content script if the service worker is shut down while paused.
+        sendResponse({ success: true, restarted: message.action === 'resume_stream' });
 
     } else if (message.action === 'cancel_stream') {
-        // Handle streaming cancellation
-        if (activeStreamingRequest) {
+        // Handle streaming cancellation (only for the sender's own request, so Stop in one tab can't kill another)
+        if (activeStreamingRequest && (message.requestId === undefined || message.requestId === activeStreamingRequest.id)) {
             console.log('[VoxLocal] Cancelling active streaming request');
             const requestId = activeStreamingRequest.id;
             activeStreamingRequest.cancelled = true;
